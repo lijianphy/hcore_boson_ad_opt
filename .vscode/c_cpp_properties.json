@@ -1,0 +1,65 @@
+{
+    "configurations": [
+        {
+            "name": "Mac-gcc",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/local/include",
+                "/Users/lijian/projects/petsc-3.22.1/macos-gnu-complex/include",
+                "/Users/lijian/projects/petsc-3.22.1/include",
+                "/Users/lijian/projects/slepc-3.22.1/macos-gnu-complex/include",
+                "/Users/lijian/projects/slepc-3.22.1/include",
+                "/opt/local/include/openblas",
+                "/opt/local/include/cjson",
+                "/opt/local/include/mpich-gcc14"
+            ],
+            "defines": [],
+            "macFrameworkPath": [
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/System/Library/Frameworks"
+            ],
+            "compilerPath": "/opt/local/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-gcc-x64",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        },
+        {
+            "name": "Mac-clang",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/local/include"
+            ],
+            "defines": [],
+            "macFrameworkPath": [
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk/System/Library/Frameworks"
+            ],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-x64",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        },
+        {
+            "name": "linux-gcc",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/lijian/opt/petsc-3.22.1/linux-gnu-complex/include",
+                "/home/lijian/opt/petsc-3.22.1/include",
+                "/home/lijian/opt/slepc-3.22.1/linux-gnu-complex/include",
+                "/home/lijian/opt/slepc-3.22.1/include",
+                "/home/lijian/opt/OpenBLAS/include",
+                "/usr/include/cjson",
+                "/usr/lib/x86_64-linux-gnu/openmpi/include",
+                "/usr/lib/x86_64-linux-gnu/fortran/gfortran-mod-15/openmpi",
+                "/usr/lib/x86_64-linux-gnu/openmpi/include/openmpi"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        }
+    ],
+    "version": 4
+}

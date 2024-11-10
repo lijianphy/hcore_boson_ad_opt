@@ -1,0 +1,25 @@
+{
+    "files.associations": {
+        "cunit.h": "c",
+        "bits.h": "c",
+        "stdio.h": "c",
+        "stdlib.h": "c",
+        "omp.h": "c",
+        "cblas.h": "c",
+        "stddef.h": "c",
+        "cjson.h": "c",
+        "petscvec.h": "c",
+        "petscmat.h": "c",
+        "petscsftypes.h": "c",
+        "petscsys.h": "c",
+        "slepceps.h": "c",
+        "combination.h": "c",
+        "petscis.h": "c",
+        "complex": "c",
+        "vec_math.h": "c",
+        "log.h": "c",
+        "math.h": "c",
+        "slepcfn.h": "c",
+        "petsc.h": "c"
+    }
+}

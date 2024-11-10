@@ -280,11 +280,9 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
         // calculate the norm of diff
         PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
-        // calculate the norm of gradient
-        norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
         printf_master("Iteration %d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, norm2_grad);
         if (norm2_error < 1e-5)
         {

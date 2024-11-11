@@ -28,24 +28,25 @@ int main(int argc, char *argv[])
     Simulation_context context = {0}; // Initialize all fields to 0
     PetscCall(init_simulation_context(&context, argv[1]));
 
-    printf_master("Random initialize coupling strength\n");
-    double norm2_grad;
-    double threshold = 1e-3;
-    PetscCall(random_initialize_coupling_strength(&context, 100, threshold, &norm2_grad));
-    if (norm2_grad < threshold)
-    {
-        printf_master("WARNING: Gradient is small after random initialization\n");
-    }
+    // printf_master("Random initialize coupling strength\n");
+    // double norm2_grad;
+    // double threshold = 1e-3;
+    // PetscCall(random_initialize_coupling_strength(&context, 100, threshold, &norm2_grad));
+    // if (norm2_grad < threshold)
+    // {
+    //     printf_master("WARNING: Gradient is small after random initialization\n");
+    // }
 
 
     printf_master("Start optimizing the coupling strength\n");
 
     // run the optimization using gradient descent
-    // PetscCall(optimize_coupling_strength_gd(&context, 1000, 0.01));
+    // PetscCall(optimize_coupling_strength_gd(&context, 3000, 0.01));
 
     // run the optimization using Adam optimizer
     // Generally, Adam optimizer converges faster than gradient descent
-    PetscCall(optimize_coupling_strength_adam(&context, 1000, 0.01, 0.9, 0.999));
+    PetscCall(optimize_coupling_strength_adam(&context, 3000, 0.01, 0.9, 0.999));
+    // PetscCall(optimize_coupling_strength_adam_with_restart(&context, 3000, 0.001, 0.9, 0.999));
 
     // print the optimized coupling strength
     printf_master("Optimized coupling strength:\n");

@@ -189,6 +189,16 @@ static PetscErrorCode adam_optimizer(Simulation_context *context, double *grad, 
     return PETSC_SUCCESS;
 }
 
+static PetscErrorCode set_random_coupling_strength(Simulation_context *context)
+{
+    for (int i = 0; i < context->cnt_bond; i++)
+    {
+        context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0; // Random value between 0 and 2;
+    }
+    PetscCall(update_coupling_strength(context, context->coupling_strength));
+    return PETSC_SUCCESS;
+}
+
 // Randomly initialize the coupling strength such that the gradient is not zero
 PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, int max_iterations, double threshold, double *norm2_grad)
 {
@@ -202,13 +212,7 @@ PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, 
 
     while (grad_is_zero && iter < max_iterations)
     {
-        // Randomly initialize coupling strengths
-        for (int i = 0; i < context->cnt_bond; i++)
-        {
-            coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0 - 1.0; // Random value between -1 and 1
-        }
-        PetscCall(set_coupling_strength(context, coupling_strength));
-
+        set_random_coupling_strength(context);
         // Run evolution and calculate gradient
         PetscCall(run_evolution(context));
         PetscCall(calculate_gradient(context, grad));
@@ -283,13 +287,83 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         // calculate the norm of diff
         PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
-        printf_master("Iteration %d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, norm2_grad);
+        printf_master("Iteration %4d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, norm2_grad);
         if (norm2_error < 1e-5)
         {
             printf_master("Converged\n");
             break;
         }
     }
+    free(grad);
+    free(m);
+    free(v);
+    return PETSC_SUCCESS;
+}
+
+// Full Adam optimization process with restart
+PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
+{
+    double norm2_error;
+    double norm2_grad;
+    double norm2_momentum;
+    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *m = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *v = (double *)malloc(context->cnt_bond * sizeof(double));
+    int restart_count = 0;
+    const int max_restarts = 20;
+    const double threshold = 1e-4;
+    const int check_after_iters = 20;
+
+    while (restart_count < max_restarts)
+    {
+        memset(m, 0, context->cnt_bond * sizeof(double));
+        memset(v, 0, context->cnt_bond * sizeof(double));
+        if (restart_count > 0)
+        {
+            printf_master("Random initialize coupling strength\n");
+            set_random_coupling_strength(context);
+        }
+
+        int iter = 0;
+        for (; iter < max_iterations; iter++)
+        {
+            PetscCall(run_evolution(context));
+            PetscCall(calculate_gradient(context, grad));
+            norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
+            PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
+            PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
+
+            norm2_momentum = cblas_dnrm2(context->cnt_bond, m, 1);
+            printf_master("Iteration %4d (restart %2d): norm2_error: %.6e, norm2_grad: %.6e, norm2_momentum: %.6e\n",
+                          iter, restart_count, norm2_error, norm2_grad, norm2_momentum);
+
+            // Check if stuck in local minimum after some iterations
+            if (iter == check_after_iters &&
+                norm2_grad < threshold &&
+                norm2_momentum < threshold &&
+                norm2_error > 0.5)
+            {
+                printf_master("Optimization stuck, restarting with new random initialization\n");
+                break;
+            }
+
+            if (norm2_error < 1e-5)
+            {
+                printf_master("Converged\n");
+                free(grad);
+                free(m);
+                free(v);
+                return PETSC_SUCCESS;
+            }
+        }
+        if (iter == max_iterations)
+        {
+            printf_master("Optimization did not converge\n");
+            break;
+        }
+        restart_count++;
+    }
+
     free(grad);
     free(m);
     free(v);

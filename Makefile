@@ -59,7 +59,7 @@ test: $(TEST_TARGETS)
 #	./test_vec_math
 #	mpirun -np 4 ./test_hamiltonian config/8_4_v1.json
 #	mpirun -np 4 ./test_ad config/8_4_v1.json
-	mpirun -np 4 ./test_optimize config/8_4_v1.json
+	mpirun -np 4 ./test_optimize config/20_2_v1.json
 
 # Print important variables for debugging Makefile
 print:

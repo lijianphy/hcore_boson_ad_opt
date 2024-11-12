@@ -50,7 +50,7 @@ Replace `<number_of_processes>` with the desired number of MPI processes and `<c
 
 ## Configuration File Format
 
-The configuration file is a JSON file that specifies the system parameters, including the number of sites, bonds, excitations, the bond connections, initial coupling strengths, total evolution time, time steps, initial state, and target state.  See `config/8_4_v1.json` for an example.  Key parameters include:
+The configuration file is a JSON file that specifies the system parameters, including the number of sites, bonds, excitations, the bond connections, initial coupling strengths, total evolution time, time steps, initial state, and target state.  See `config/1d_8_4_v1.json` for an example.  Key parameters include:
 
 * `"cnt_site"`: Number of sites in the system.
 * `"cnt_bond"`: Number of bonds between sites.

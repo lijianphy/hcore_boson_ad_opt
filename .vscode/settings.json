@@ -20,6 +20,7 @@
         "log.h": "c",
         "math.h": "c",
         "slepcfn.h": "c",
-        "petsc.h": "c"
+        "petsc.h": "c",
+        "hamiltonian.h": "c"
     }
 }

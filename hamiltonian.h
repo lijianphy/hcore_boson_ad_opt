@@ -47,6 +47,10 @@ typedef struct Simulation_context
     Vec target_vec;        // target state vector
     Vec *forward_path;     // forward propagation path
     Vec *backward_path;    // backward propagation path
+
+    // output file
+    // the format of output is JSON lines (also called newline-delimited JSON), see: https://jsonlines.org/
+    FILE *output_file;
 } Simulation_context;
 
 

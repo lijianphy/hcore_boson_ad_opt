@@ -19,6 +19,7 @@
 #include <math.h>
 #include <complex.h>
 #include <cblas.h>
+#include <time.h>
 
 #include "hamiltonian.h"
 // #include "evolution_ad.h"
@@ -140,7 +141,7 @@ PetscErrorCode calculate_gradient(Simulation_context *context, double *grad)
     {
         PetscScalar sum = 0;
         Mat m = context->single_bond_hams[i];
-        // integrate using trapezoidal rule, see https://en.wikipedia.org/wiki/Trapezoidal_rule
+        // integrate using Trapezoidal rule, see https://en.wikipedia.org/wiki/Trapezoidal_rule
         for (int t = 0; t <= time_steps; t++)
         {
             PetscScalar result;
@@ -242,9 +243,48 @@ PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, 
     return PETSC_SUCCESS;
 }
 
+// Write iteration data before the optimization functions (which will update the coupling strength)
+static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double *grad, double norm2_error, double norm2_grad)
+{
+    FILE *fp = context->output_file;
+    if (fp && context->partition_id == 0)
+    {
+        fprintf(fp, "{\"iteration\": %d, \"coupling_strength\": [", iter);
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            fprintf(fp, "%.10e%s", context->coupling_strength[i],
+                    i < context->cnt_bond - 1 ? ", " : "");
+        }
+        fprintf(fp, "], \"gradient\": [");
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            fprintf(fp, "%.10e%s", grad[i],
+                    i < context->cnt_bond - 1 ? ", " : "");
+        }
+        fprintf(fp, "], \"norm2_error\": %.10e, \"norm2_grad\": %.10e}\n",
+                norm2_error, norm2_grad);
+    }
+    return PETSC_SUCCESS;
+}
+
+
+
+// Print iteration data during the optimization process
+static void print_iteration_data(int iter, double norm2_error, double norm2_grad)
+{
+    time_t now;
+    char timestamp[20];
+    time(&now);
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+    printf_master("[%s] Iteration %4d: norm2_error: %.6e, norm2_grad: %.6e\n", timestamp, iter, norm2_error, norm2_grad);
+}
+
 // Full gradient descent optimization process
 PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate)
 {
+    printf_master("Start optimizing the coupling strength using gradient descent with ");
+    printf_master("max_iterations: %d, learning_rate: %.6e\n", max_iterations, learning_rate);
     double norm2_error;
     double norm2_grad;
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
@@ -252,12 +292,13 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
     {
         PetscCall(run_evolution(context));
         PetscCall(calculate_gradient(context, grad));
-        PetscCall(gradient_descent(context, grad, learning_rate));
         // calculate the norm of diff
         PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        printf_master("Iteration %d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, norm2_grad);
+        PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad));
+        print_iteration_data(iter, norm2_error, norm2_grad);
+        PetscCall(gradient_descent(context, grad, learning_rate));
         if (norm2_error < 1e-5)
         {
             printf_master("Converged\n");
@@ -271,6 +312,9 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
 // Full Adam optimization process
 PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
 {
+    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
+
     double norm2_error;
     double norm2_grad;
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
@@ -278,6 +322,7 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
     double *v = (double *)malloc(context->cnt_bond * sizeof(double));
     memset(m, 0, context->cnt_bond * sizeof(double));
     memset(v, 0, context->cnt_bond * sizeof(double));
+
     for (int iter = 0; iter < max_iterations; iter++)
     {
         PetscCall(run_evolution(context));
@@ -286,8 +331,10 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         // calculate the norm of diff
         PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
+        PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad));
+        print_iteration_data(iter, norm2_error, norm2_grad);
         PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
-        printf_master("Iteration %4d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, norm2_grad);
+
         if (norm2_error < 1e-5)
         {
             printf_master("Converged\n");
@@ -303,6 +350,8 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
 // Full Adam optimization process with restart
 PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
 {
+    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
     double norm2_error;
     double norm2_grad;
     double norm2_momentum;
@@ -331,11 +380,11 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
             PetscCall(calculate_gradient(context, grad));
             norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
             PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
+            PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad));
+            print_iteration_data(iter, norm2_error, norm2_grad);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
 
             norm2_momentum = cblas_dnrm2(context->cnt_bond, m, 1);
-            printf_master("Iteration %4d (restart %2d): norm2_error: %.6e, norm2_grad: %.6e, norm2_momentum: %.6e\n",
-                          iter, restart_count, norm2_error, norm2_grad, norm2_momentum);
 
             // Check if stuck in local minimum after some iterations
             if (iter == check_after_iters &&

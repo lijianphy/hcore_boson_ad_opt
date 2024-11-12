@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <stdarg.h>
 #include <cJSON.h>
 #include <petscmat.h>
@@ -308,6 +309,40 @@ static int print_config(const Simulation_context *context)
 }
 
 /**
+ * @brief Generate output file name from input file name and current time
+ * @param file_name Input file name
+ * @return Output file name
+ */
+static char *generate_output_file_name(const char *file_name)
+{
+    // Extract base name from path
+    const char *base_name = strrchr(file_name, '/');
+    base_name = base_name ? base_name + 1 : file_name;
+    
+    // Find last dot position and calculate base length
+    const char *last_dot = strrchr(base_name, '.');
+    size_t base_len = last_dot ? (size_t)(last_dot - base_name) : strlen(base_name);
+    
+    // Get current time
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    
+    // Generate output filename with timestamp
+    char *output_file = (char *)malloc(base_len + 32); // enough space for name + timestamp + .json
+    
+    // Copy base name (without extension) and add timestamp
+    memcpy(output_file, base_name, base_len);
+    output_file[base_len] = '\0';
+    
+    // output file name format: base_name_YYYYMMDD-HHMMSS.jsonl
+    sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d.jsonl", 
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+            tm.tm_hour, tm.tm_min, tm.tm_sec);
+    
+    return output_file;
+}
+
+/**
  * @brief Initializes the simulation context by setting up configuration and Hamiltonian matrix
  * @param context Pointer to the simulation context to be initialized
  * @param file_name Path to the configuration JSON file
@@ -321,6 +356,9 @@ static int print_config(const Simulation_context *context)
  */
 PetscErrorCode init_simulation_context(Simulation_context *context, const char *file_name)
 {
+    // clear the context
+    memset(context, 0, sizeof(Simulation_context));
+
     // get n_partition and partition_id
     int n_partition = 0;
     int partition_id = 0;
@@ -337,6 +375,23 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     if (partition_id == 0)
     {
         print_config(context);
+    }
+
+    // open output file
+    // the format of output is JSON lines (also called newline-delimited JSON), see: https://jsonlines.org/
+    context->output_file = NULL;
+    if (partition_id == 0)
+    {
+        char *output_file = generate_output_file_name(file_name);
+        context->output_file = fopen(output_file, "w");
+        if (context->output_file == NULL)
+        {
+            print_error_msg_mpi("Unable to open file %s for writing", output_file);
+            free(output_file);
+            return PETSC_ERR_FILE_OPEN;
+        }
+        printf_master("Output file: %s\n", output_file);
+        free(output_file);
     }
 
     // calculate the dimension of the Hilbert space
@@ -428,6 +483,12 @@ PetscErrorCode free_simulation_context(Simulation_context *context)
     // free forward and backward paths
     PetscCall(VecDestroyVecs(context->time_steps + 1, &context->forward_path));
     PetscCall(VecDestroyVecs(context->time_steps + 1, &context->backward_path));
+
+    // close output file
+    if (context->output_file != NULL)
+    {
+        fclose(context->output_file);
+    }
 
     return PETSC_SUCCESS;
 }

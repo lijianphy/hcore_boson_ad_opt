@@ -11,9 +11,10 @@ test_vec_math
 test_ad
 test_optimize
 
-# Ignore build artifacts
+# Ignore output files
 *.out
 *.log
+*.jsonl
 
 # Ignore OS-specific files
 .DS_Store

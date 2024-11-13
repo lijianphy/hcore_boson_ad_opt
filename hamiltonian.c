@@ -429,6 +429,8 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
  * @param context Pointer to the simulation context
  * @param coupling_strength Array of new coupling strengths
  * @return PetscErrorCode
+ * 
+ * WARNING: One should make sure that the new coupling_strength array should be consistent between all partitions.
  */
 PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupling_strength)
 {
@@ -445,6 +447,8 @@ PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupli
  * @param context Pointer to the simulation context
  * @param delta Array of delta coupling strengths
  * @return PetscErrorCode
+ * 
+ * WARNING: One should make sure that the new coupling_strength array should be consistent between all partitions.
  */
 PetscErrorCode update_coupling_strength(Simulation_context *context, double *delta)
 {

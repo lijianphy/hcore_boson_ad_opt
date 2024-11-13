@@ -20,6 +20,7 @@
 #include <complex.h>
 #include <cblas.h>
 #include <time.h>
+#include <mpi.h>
 
 #include "hamiltonian.h"
 // #include "evolution_ad.h"
@@ -190,13 +191,24 @@ static PetscErrorCode adam_optimizer(Simulation_context *context, double *grad, 
     return PETSC_SUCCESS;
 }
 
+// Set the coupling strength to random values
 static PetscErrorCode set_random_coupling_strength(Simulation_context *context)
 {
-    for (int i = 0; i < context->cnt_bond; i++)
-    {
-        context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0; // Random value between 0 and 2;
+    MPI_Comm comm;
+    PetscCall(PetscObjectGetComm((PetscObject)context->hamiltonian, &comm));
+
+    // Only master process generates random values
+    if (context->partition_id == 0) {
+        for (int i = 0; i < context->cnt_bond; i++) {
+            context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0;
+        }
     }
-    PetscCall(update_coupling_strength(context, context->coupling_strength));
+
+    // Broadcast the coupling strengths from master to all processes
+    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, comm));
+    
+    // Set Hamiltonian with the new coupling strengths
+    PetscCall(set_coupling_strength(context, context->coupling_strength));
     return PETSC_SUCCESS;
 }
 

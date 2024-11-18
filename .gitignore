@@ -4,6 +4,7 @@
 # Ignore binaries
 *.exe
 test_bits
+test_bits128
 test_cblas
 test_combination
 test_hamiltonian

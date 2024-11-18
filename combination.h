@@ -9,6 +9,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "bits.h"
+#include "bits128.h"
+
 /**
  * Calculate the greatest common divisor of a and b
  */
@@ -33,6 +36,7 @@ uint64_t binomial(int n, int k);
  * Ref: https://graphics.stanford.edu/~seander/bithacks.html#NextBitPermutation
  */
 uint64_t next_bit_permutation(uint64_t v);
+uint128_t next_bit_permutation128(uint128_t v);
 
 /**
  * Compute the lexicographically index of bit permutation (0-indexed)
@@ -40,6 +44,7 @@ uint64_t next_bit_permutation(uint64_t v);
  * data is the bit permutation
  */
 uint64_t permutation2index(int k, uint64_t data);
+uint64_t permutation2index128(int k, uint128_t data);
 
 /**
  * Compute the lexicographically bit permutation from index
@@ -47,5 +52,6 @@ uint64_t permutation2index(int k, uint64_t data);
  * k is the number of set bits
  */
 uint64_t index2permutation(int n, int k, uint64_t index);
+uint128_t index2permutation128(int n, int k, uint64_t index);
 
 #endif // COMBINATION_H_

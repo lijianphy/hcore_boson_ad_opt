@@ -3,33 +3,40 @@
  * @brief Unit tests for bit manipulation functions
  */
 
-#include <stdio.h> // for printf()
-#include <stdlib.h>  // for rand()
+#include <stdio.h>  // for printf()
+#include <stdlib.h> // for rand()
 #include <CUnit/CUnit.h>
 #include <CUnit/Basic.h>
 #include "bits.h"
 
-
-static int pop_count_naive(uint64_t x) {
+static int pop_count_naive(uint64_t x)
+{
     int count = 0;
-    while (x) {
+    while (x)
+    {
         count += x & 1;
         x >>= 1;
     }
     return count;
 }
 
-static int bit_block_count_naive(uint64_t x) {
+static int bit_block_count_naive(uint64_t x)
+{
     int count = 0;
     int in_block = 0;
 
-    while (x) {
-        if (x & 1) {
-            if (!in_block) {
+    while (x)
+    {
+        if (x & 1)
+        {
+            if (!in_block)
+            {
                 count++;
                 in_block = 1;
             }
-        } else {
+        }
+        else
+        {
             in_block = 0;
         }
         x >>= 1;
@@ -37,10 +44,11 @@ static int bit_block_count_naive(uint64_t x) {
     return count;
 }
 
-
-static uint64_t reverse_bits_naive(uint64_t x) {
+static uint64_t reverse_bits_naive(uint64_t x)
+{
     uint64_t y = 0;
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 64; i++)
+    {
         y <<= 1;
         y |= x & 1;
         x >>= 1;
@@ -48,81 +56,96 @@ static uint64_t reverse_bits_naive(uint64_t x) {
     return y;
 }
 
-static int parity_naive(uint64_t x) {
+static int parity_naive(uint64_t x)
+{
     int count = pop_count_naive(x);
     return count % 2;
 }
 
-static int is_power_of_2_naive(uint64_t x) {
+static int is_power_of_2_naive(uint64_t x)
+{
     return pop_count_naive(x) == 1;
 }
 
-static int rightmost_set_bit_naive(uint64_t x) {
-    if (x == 0) {
+static int rightmost_set_bit_naive(uint64_t x)
+{
+    if (x == 0)
+    {
         return -1;
     }
     int i = 0;
-    while ((x & 1) == 0) {
+    while ((x & 1) == 0)
+    {
         x >>= 1;
         i++;
     }
     return i;
 }
 
-static int leftmost_set_bit_naive(uint64_t x) {
-    if (x == 0) {
+static int leftmost_set_bit_naive(uint64_t x)
+{
+    if (x == 0)
+    {
         return -1;
     }
     int i = 0;
-    while (x >>= 1) {
+    while (x >>= 1)
+    {
         i++;
     }
     return i;
 }
 
-void test_set_bit() {
-    CU_ASSERT_EQUAL(set_bit(0, 0), 1); // 0001
-    CU_ASSERT_EQUAL(set_bit(0, 1), 2); // 0010
-    CU_ASSERT_EQUAL(set_bit(1, 1), 3); // 0011
-    CU_ASSERT_EQUAL(set_bit(2, 0), 3); // 0011
-    CU_ASSERT_EQUAL(set_bit(3, 0), 3); // 0011
-    CU_ASSERT_EQUAL(set_bit(3, 1), 3); // 0011
-    CU_ASSERT_EQUAL(set_bit(3, 2), 7); // 0111
+void test_set_bit()
+{
+    CU_ASSERT_EQUAL(set_bit(0, 0), 1);  // 0001
+    CU_ASSERT_EQUAL(set_bit(0, 1), 2);  // 0010
+    CU_ASSERT_EQUAL(set_bit(1, 1), 3);  // 0011
+    CU_ASSERT_EQUAL(set_bit(2, 0), 3);  // 0011
+    CU_ASSERT_EQUAL(set_bit(3, 0), 3);  // 0011
+    CU_ASSERT_EQUAL(set_bit(3, 1), 3);  // 0011
+    CU_ASSERT_EQUAL(set_bit(3, 2), 7);  // 0111
     CU_ASSERT_EQUAL(set_bit(3, 3), 11); // 1011
 }
 
-void test_clear_bit() {
+void test_clear_bit()
+{
     CU_ASSERT_EQUAL(clear_bit(1, 0), 0); // 0000
     CU_ASSERT_EQUAL(clear_bit(3, 1), 1); // 0001
     CU_ASSERT_EQUAL(clear_bit(2, 1), 0); // 0000
 }
 
-void test_toggle_bit() {
+void test_toggle_bit()
+{
     CU_ASSERT_EQUAL(toggle_bit(0, 0), 1); // 0001
     CU_ASSERT_EQUAL(toggle_bit(1, 0), 0); // 0000
     CU_ASSERT_EQUAL(toggle_bit(2, 1), 0); // 0000
 }
 
-void test_is_bit_set() {
+void test_is_bit_set()
+{
     CU_ASSERT_EQUAL(is_bit_set(1, 0), 1); // 0001
     CU_ASSERT_EQUAL(is_bit_set(2, 1), 1); // 0010
     CU_ASSERT_EQUAL(is_bit_set(0, 0), 0); // 0000
 }
 
-void test_is_bit_clear() {
+void test_is_bit_clear()
+{
     CU_ASSERT_EQUAL(is_bit_clear(1, 1), 1);
     CU_ASSERT_EQUAL(is_bit_clear(2, 0), 1);
     CU_ASSERT_EQUAL(is_bit_clear(0, 0), 1);
 }
 
-void test_pop_count() {
+void test_pop_count()
+{
     CU_ASSERT_EQUAL(pop_count(0), 0);
     CU_ASSERT_EQUAL(pop_count(1), 1);
     CU_ASSERT_EQUAL(pop_count(3), 2);
     CU_ASSERT_EQUAL(pop_count(0x15), 3); // 10101
     CU_ASSERT_EQUAL(pop_count(0x1C), 3); // 11100
     CU_ASSERT_EQUAL(pop_count(0x1B), 4); // 11011
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand();
@@ -133,11 +156,13 @@ void test_pop_count() {
     }
 }
 
-void test_bit_block_count() {
+void test_bit_block_count()
+{
     CU_ASSERT_EQUAL(bit_block_count(0x15), 3); // 10101
     CU_ASSERT_EQUAL(bit_block_count(0x1C), 1); // 11100
     CU_ASSERT_EQUAL(bit_block_count(0x1B), 2); // 11011
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand();
@@ -148,11 +173,13 @@ void test_bit_block_count() {
     }
 }
 
-void test_reverse_bits() {
+void test_reverse_bits()
+{
     CU_ASSERT_EQUAL(reverse_bits(0x1), UINT64_C(0x8000000000000000));
     CU_ASSERT_EQUAL(reverse_bits(0x2), UINT64_C(0x4000000000000000));
     CU_ASSERT_EQUAL(reverse_bits(0x3), UINT64_C(0xC000000000000000));
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand();
@@ -163,11 +190,13 @@ void test_reverse_bits() {
     }
 }
 
-void test_parity() {
+void test_parity()
+{
     CU_ASSERT_EQUAL(parity(0x1), 1);
     CU_ASSERT_EQUAL(parity(0x3), 0);
     CU_ASSERT_EQUAL(parity(0x5), 0);
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand();
@@ -178,14 +207,16 @@ void test_parity() {
     }
 }
 
-void test_is_power_of_2() {
+void test_is_power_of_2()
+{
     CU_ASSERT_EQUAL(is_power_of_2(1), 1);
     CU_ASSERT_EQUAL(is_power_of_2(2), 1);
     CU_ASSERT_EQUAL(is_power_of_2(3), 0);
     CU_ASSERT_EQUAL(is_power_of_2(4), 1);
     CU_ASSERT_EQUAL(is_power_of_2(5), 0);
     CU_ASSERT_EQUAL(is_power_of_2(6), 0);
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand();
@@ -196,12 +227,14 @@ void test_is_power_of_2() {
     }
 }
 
-void test_rightmost_set_bit() {
+void test_rightmost_set_bit()
+{
     CU_ASSERT_EQUAL(rightmost_set_bit(0x1), 0);
     CU_ASSERT_EQUAL(rightmost_set_bit(0x2), 1);
     CU_ASSERT_EQUAL(rightmost_set_bit(0x4), 2);
     CU_ASSERT_EQUAL(rightmost_set_bit(UINT64_C(0x8000000000000000)), 63);
-    for (uint64_t x = 1; x < 1000; x++) {
+    for (uint64_t x = 1; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand() + x;
@@ -212,11 +245,13 @@ void test_rightmost_set_bit() {
     }
 }
 
-void test_leftmost_set_bit() {
+void test_leftmost_set_bit()
+{
     CU_ASSERT_EQUAL(leftmost_set_bit(0x1), 0);
     CU_ASSERT_EQUAL(leftmost_set_bit(0x2), 1);
     CU_ASSERT_EQUAL(leftmost_set_bit(0x4), 2);
-    for (uint64_t x = 1; x < 1000; x++) {
+    for (uint64_t x = 1; x < 1000; x++)
+    {
         uint64_t y = 1234567 + x;
         uint64_t z = 5678901 + x;
         uint64_t w = rand() + 1;
@@ -227,42 +262,59 @@ void test_leftmost_set_bit() {
     }
 }
 
-void test_gray_code() {
+void test_gray_code()
+{
     CU_ASSERT_EQUAL(gray_code(0), 0);
     CU_ASSERT_EQUAL(gray_code(1), 1);
     CU_ASSERT_EQUAL(gray_code(2), 3);
+    for (uint64_t x = 0; x < 1000; x++)
+    {
+        uint64_t y = 1234567 + x;
+        uint64_t z = x + 5678901;
+        uint64_t w = rand() + x;
+        CU_ASSERT_EQUAL(pop_count(gray_code(x) ^ gray_code(x+1)), 1);
+        CU_ASSERT_EQUAL(pop_count(gray_code(y) ^ gray_code(y+1)), 1);
+        CU_ASSERT_EQUAL(pop_count(gray_code(z) ^ gray_code(z+1)), 1);
+        CU_ASSERT_EQUAL(pop_count(gray_code(w) ^ gray_code(w+1)), 1);
+    }
 }
 
-void test_inverse_gray_code() {
+void test_inverse_gray_code()
+{
     CU_ASSERT_EQUAL(inverse_gray_code(0), 0);
     CU_ASSERT_EQUAL(inverse_gray_code(1), 1);
     CU_ASSERT_EQUAL(inverse_gray_code(3), 2);
-    for (uint64_t x = 0; x < 1000; x++) {
+    for (uint64_t x = 0; x < 1000; x++)
+    {
         uint64_t w = rand();
         CU_ASSERT_EQUAL(inverse_gray_code(gray_code(x)), x);
         CU_ASSERT_EQUAL(inverse_gray_code(gray_code(w)), w);
     }
 }
 
-void test_rotate_left() {
+void test_rotate_left()
+{
     CU_ASSERT_EQUAL(rotate_left(1, 1), 2);
     CU_ASSERT_EQUAL(rotate_left(1, 2), 4);
     CU_ASSERT_EQUAL(rotate_left(1, 63), UINT64_C(0x8000000000000000));
 }
 
-void test_rotate_right() {
+void test_rotate_right()
+{
     CU_ASSERT_EQUAL(rotate_right(1, 1), UINT64_C(0x8000000000000000));
     CU_ASSERT_EQUAL(rotate_right(2, 1), 1);
     CU_ASSERT_EQUAL(rotate_right(4, 2), 1);
 }
 
-void test_swap_bits() {
+void test_swap_bits()
+{
     CU_ASSERT_EQUAL(swap_bits(0x5, 0, 2), 0x5);
     CU_ASSERT_EQUAL(swap_bits(0x5, 0, 1), 0x6);
     CU_ASSERT_EQUAL(swap_bits(0x6, 1, 2), 0x6);
 }
 
-int main() {
+int main()
+{
     CU_initialize_registry();
 
     CU_pSuite suite = CU_add_suite("bit_operations_suite", 0, 0);

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "combination.h"
 #include "bits.h"
+#include "bits128.h"
 
 /**
  * Calculate the greatest common divisor of a and b
@@ -84,6 +85,15 @@ uint64_t next_bit_permutation(uint64_t v)
     return t1 | (((~t & t1) - 1) >> (rightmost_set_bit(v) + 1));
 }
 
+uint128_t next_bit_permutation128(uint128_t v)
+{
+    uint128_t t = v | (v - 1); // t gets v's least significant 0 bits set to 1
+    // Next set to 1 the most significant bit to change,
+    uint128_t t1 = t + 1;
+    // set to 0 the least significant ones, and add the necessary 1 bits.
+    return t1 | (((~t & t1) - 1) >> (rightmost_set_bit128(v) + 1));
+}
+
 /**
  * Compute the lexicographically index of bit permutation
  * k is the number of set bits in data
@@ -107,6 +117,27 @@ uint64_t permutation2index(int k, uint64_t data)
     }
     return index;
 }
+
+
+uint64_t permutation2index128(int k, uint128_t data)
+{
+    uint128_t t = data & (data + 1);
+    if (t == 0) return 0;
+
+    int n1 = leftmost_set_bit128(data);
+    int n2 = rightmost_set_bit128(t);
+    uint64_t index = 0;
+    for (int i = n1, j = k; i >= n2; i--)
+    {
+        if (data & (UINT128_C(1) << i))
+        {
+            index += binomial(i, j);
+            j--;
+        }
+    }
+    return index;
+}
+
 
 /**
  * Compute the lexicographically bit permutation from index
@@ -133,6 +164,33 @@ uint64_t index2permutation(int n, int k, uint64_t index)
             if (j == 0) break;
             if (index == 0) {
                 data |= (UINT64_C(1) << j) - 1;
+                break;
+            }
+        }
+    }
+    return data;
+}
+
+uint128_t index2permutation128(int n, int k, uint64_t index)
+{
+    // some special cases
+    if (k == 0) return 0;
+    if (index == 0) return (UINT128_C(1) << k) - 1;
+
+    uint128_t data = 0;
+    int j = k;
+    for (int i = n-1; i >= 0; i--)
+    {
+        uint64_t temp = binomial(i, j);
+        if (index >= temp)
+        {
+            data |= (UINT128_C(1) << i);
+            index -= temp;
+            j--;
+
+            if (j == 0) break;
+            if (index == 0) {
+                data |= (UINT128_C(1) << j) - 1;
                 break;
             }
         }

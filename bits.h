@@ -9,7 +9,8 @@
 #ifndef BITS_H_
 #define BITS_H_
 
-#include <stdint.h>
+#include <stdint.h> // for uint64_t
+#include <stdio.h>  // for printf
 
 // Check if the compiler supports builtin bit functions
 #if defined __GNUC__ || defined __clang__

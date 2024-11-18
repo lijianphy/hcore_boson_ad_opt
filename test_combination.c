@@ -56,6 +56,21 @@ void test_bit_permutation() {
     }
 }
 
+void test_bit_permutation128() {
+    int n = 100;
+    int k = 3;
+    uint64_t index = 0;
+    uint128_t data = (UINT64_C(1) << k) - 1;
+
+    uint64_t max_index = binomial(n, k);
+    while (index < max_index) {
+        CU_ASSERT_EQUAL(index2permutation128(n, k, index), data);
+        CU_ASSERT_EQUAL(permutation2index128(k, data), index);
+        data = next_bit_permutation128(data);
+        index++;
+    }
+}
+
 
 int main() {
     CU_initialize_registry();
@@ -66,6 +81,7 @@ int main() {
     CU_add_test(suite, "test_factorial", test_factorial);
     CU_add_test(suite, "test_binomial", test_binomial);
     CU_add_test(suite, "test_bit_permutation", test_bit_permutation);
+    CU_add_test(suite, "test_bit_permutation128", test_bit_permutation128);
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();

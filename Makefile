@@ -27,7 +27,7 @@ CC := mpicc
 #   -pedantic: Strict ISO C conformance
 #   -O2: Optimization level 2
 #   -fopenmp: Enable OpenMP support
-CFLAGS := -Wall -Wextra -std=c17 -pedantic -O2 -fopenmp $(shell pkg-config --cflags $(PACKAGES))
+CFLAGS := -Wall -Wextra -std=c17 -pedantic -O2 -march=native -fopenmp $(shell pkg-config --cflags $(PACKAGES))
 # Linker flags - include all required libraries
 LDFLAGS := $(shell pkg-config --libs $(PACKAGES)) -lm
 
@@ -39,7 +39,7 @@ SRCS := $(wildcard *.c)
 # Generate object file names by replacing .c with .o
 OBJS := $(SRCS:.c=.o)
 # List of test executables
-TEST_TARGETS := test_ad test_bits test_cblas test_combination test_hamiltonian test_vec_math test_optimize
+TEST_TARGETS := test_ad test_bits test_bits128 test_cblas test_combination test_hamiltonian test_vec_math test_optimize
 # All final executables
 TARGETS := $(TEST_TARGETS)
 
@@ -73,7 +73,7 @@ print:
 # =============================================================================
 # Pattern rule for object files
 # $<: first prerequisite
-%.o: %.c bits.h log.h
+%.o: %.c bits.h log.h bits128.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Individual target rules
@@ -81,6 +81,9 @@ print:
 # $@: target name
 # $(LDFLAGS) at the end links all required libraries
 test_bits: test_bits.o
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+test_bits128: test_bits128.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 test_combination: test_combination.o combination.o

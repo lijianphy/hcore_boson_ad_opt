@@ -24,11 +24,7 @@
 #include <stdarg.h>
 #include <cJSON.h>
 #include <petscmat.h>
-
-#include "bits.h"        // next_bit_permutation, swap_bits
-#include "combination.h" // binomial, index2permutation, permutation2index, next_bit_permutation
-#include "log.h"         // print_error_msg, print_error_msg_mpi, printf_master, printf_mpi
-
+#include "log.h"
 #include "hamiltonian.h"
 
 /**
@@ -69,10 +65,10 @@ static int validate_json_schema(const cJSON *json)
     int cnt_site = cJSON_GetObjectItem(json, "cnt_site")->valueint;
     int cnt_bond = cJSON_GetObjectItem(json, "cnt_bond")->valueint;
     int cnt_excitation = cJSON_GetObjectItem(json, "cnt_excitation")->valueint;
-    // cnt_site should be less than 64
-    if (cnt_site >= 64)
+    // cnt_site should be less than MAX_SITE
+    if (cnt_site >= MAX_SITE)
     {
-        print_error_msg_mpi("cnt_site must be less than 64, got %d", cnt_site);
+        print_error_msg_mpi("cnt_site must be less than %d, got %d", MAX_SITE, cnt_site);
         return 0;
     }
     // cnt_excitation should be > 0 and < cnt_site
@@ -273,8 +269,8 @@ static void read_config(const char *file_name, Simulation_context *context)
     cJSON *target_state = cJSON_GetObjectItem(json, "target_state");
     for (int i = 0; i < context->cnt_excitation; i++)
     {
-        context->initial_state |= 1ULL << cJSON_GetArrayItem(initial_state, i)->valueint;
-        context->target_state |= 1ULL << cJSON_GetArrayItem(target_state, i)->valueint;
+        context->initial_state |= (State)1 << cJSON_GetArrayItem(initial_state, i)->valueint;
+        context->target_state |= (State)1 << cJSON_GetArrayItem(target_state, i)->valueint;
     }
 
     // Cleanup
@@ -301,9 +297,9 @@ static int print_config(const Simulation_context *context)
     printf("total_time: %lf\n", context->total_time);
     printf("time_steps: %d\n", context->time_steps);
     printf("initial_state: ");
-    print_bits(context->initial_state, context->cnt_site);
+    print_state(context->initial_state, context->cnt_site);
     printf("target_state:  ");
-    print_bits(context->target_state, context->cnt_site);
+    print_state(context->target_state, context->cnt_site);
 
     return 0;
 }
@@ -517,17 +513,17 @@ void build_hamiltonian_dense(const Simulation_context *context, double *hamilton
     // clear the hamiltonian
     memset(hamiltonian, 0, h_dimension * h_dimension * sizeof(double));
 
-    uint64_t current_state = index2permutation(cnt_site, cnt_excitation, 0);
-    for (size_t i = 0; i < h_dimension; i++, current_state = next_bit_permutation(current_state))
+    State current_state = index2state(cnt_site, cnt_excitation, 0);
+    for (size_t i = 0; i < h_dimension; i++, current_state = next_state(current_state))
     {
         double *p = hamiltonian + i * h_dimension;
         for (int j = 0; j < cnt_bond; j++)
         {
             Pair bond = bonds[j];
-            uint64_t new_state = swap_bits(current_state, bond.x, bond.y);
+            State new_state = swap_sites(current_state, bond.x, bond.y);
             if (new_state != current_state)
             {
-                size_t new_index = permutation2index(cnt_excitation, new_state);
+                size_t new_index = state2index(cnt_excitation, new_state);
                 p[new_index] += coupling_strength[j];
             }
         }
@@ -600,16 +596,16 @@ static void init_dnnz_onnz(Simulation_context *context, PetscInt *dnnz, PetscInt
     memset(dnnz, 0, partition_size * sizeof(PetscInt));
     memset(onnz, 0, partition_size * sizeof(PetscInt));
 
-    uint64_t current_state = index2permutation(cnt_site, cnt_excitation, partition_begin);
-    for (size_t i = 0; i < partition_size; i++, current_state = next_bit_permutation(current_state))
+    State current_state = index2state(cnt_site, cnt_excitation, partition_begin);
+    for (size_t i = 0; i < partition_size; i++, current_state = next_state(current_state))
     {
         for (int j = 0; j < cnt_bond; j++)
         {
             Pair bond = bonds[j];
-            uint64_t new_state = swap_bits(current_state, bond.x, bond.y);
+            State new_state = swap_sites(current_state, bond.x, bond.y);
             if (new_state != current_state)
             {
-                size_t new_index = permutation2index(cnt_excitation, new_state);
+                size_t new_index = state2index(cnt_excitation, new_state);
                 if (new_index >= partition_begin && new_index < partition_end)
                 {
                     dnnz[i]++;
@@ -688,18 +684,18 @@ PetscErrorCode build_hamiltonian_sparse(Simulation_context *context, int create_
     // fill the matrix
     PetscInt *index_buffer = (PetscInt *)malloc(cnt_bond * sizeof(PetscInt));
     PetscScalar *value_buffer = (PetscScalar *)malloc(cnt_bond * sizeof(PetscScalar));
-    uint64_t current_state = index2permutation(cnt_site, cnt_excitation, mpi_local_begin);
-    for (size_t i = mpi_local_begin; i < mpi_local_end; i++, current_state = next_bit_permutation(current_state))
+    State current_state = index2state(cnt_site, cnt_excitation, mpi_local_begin);
+    for (size_t i = mpi_local_begin; i < mpi_local_end; i++, current_state = next_state(current_state))
     {
         PetscInt current_row = i;
         PetscInt cnt_values = 0;
         for (int j = 0; j < cnt_bond; j++)
         {
             Pair bond = bonds[j];
-            uint64_t new_state = swap_bits(current_state, bond.x, bond.y);
+            State new_state = swap_sites(current_state, bond.x, bond.y);
             if (new_state != current_state)
             {
-                size_t new_index = permutation2index(cnt_excitation, new_state);
+                size_t new_index = state2index(cnt_excitation, new_state);
                 index_buffer[cnt_values] = new_index;
                 value_buffer[cnt_values] = coupling_strength[j];
                 cnt_values++;
@@ -757,13 +753,13 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
         PetscCall(MatSetUp(single_bond_hams[j]));
 
         // fill the matrix
-        uint64_t current_state = index2permutation(cnt_site, cnt_excitation, mpi_local_begin);
-        for (size_t i = mpi_local_begin; i < mpi_local_end; i++, current_state = next_bit_permutation(current_state))
+        State current_state = index2state(cnt_site, cnt_excitation, mpi_local_begin);
+        for (size_t i = mpi_local_begin; i < mpi_local_end; i++, current_state = next_state(current_state))
         {
-            uint64_t new_state = swap_bits(current_state, bond.x, bond.y);
+            State new_state = swap_sites(current_state, bond.x, bond.y);
             if (new_state != current_state)
             {
-                size_t new_index = permutation2index(cnt_excitation, new_state);
+                size_t new_index = state2index(cnt_excitation, new_state);
                 PetscCall(MatSetValue(single_bond_hams[j], i, new_index, -1.0 * I, INSERT_VALUES));
             }
         }
@@ -783,14 +779,14 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
  * @param binary_repredentation The binary representation of the Fock state
  * @param context Pointer to the simulation context
  */
-PetscErrorCode generate_fock_state(Vec state, uint64_t binary_repredentation, const Simulation_context *context)
+PetscErrorCode generate_fock_state(Vec state, State binary_repredentation, const Simulation_context *context)
 {
     size_t mpi_local_begin = context->local_partition_begin;
     size_t mpi_local_end = context->local_partition_begin + context->local_partition_size;
 
     PetscCall(VecSet(state, 0.0));
 
-    size_t index = permutation2index(context->cnt_excitation, binary_repredentation);
+    size_t index = state2index(context->cnt_excitation, binary_repredentation);
     if ((index >= mpi_local_begin) && (index < mpi_local_end))
     {
         PetscCall(VecSetValue(state, index, 1.0, INSERT_VALUES));

@@ -65,7 +65,7 @@ The configuration file is a JSON file that specifies the system parameters, incl
 
 ## Code Structure
 
-* **`bits.h`, `bits.c`**: Bit manipulation functions.
+* **`bits.h`, `bits128.h`**: Bit manipulation (inline) functions.
 * **`combination.h`, `combination.c`**: Combinatorial calculations (binomial coefficients, permutations).
 * **`log.h`**: Logging macros.
 * **`math_constant.h`**: Mathematical constants.

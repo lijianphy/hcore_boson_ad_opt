@@ -50,7 +50,7 @@ TARGETS := $(TEST_TARGETS)
 .PHONY: all clean test print
 
 # Default target: build all executables
-all: $(TARGETS)
+all: $(TARGETS) $(OBJS)
 
 # Run all tests
 test: $(TEST_TARGETS)

@@ -12,7 +12,7 @@
 #include "bits128.h"
 #include "combination.h"
 
-#define MAX_SITE 64 // maximum number of sites
+#define MAX_SITE 128 // maximum number of sites
 
 #if MAX_SITE == 64
 typedef uint64_t State;

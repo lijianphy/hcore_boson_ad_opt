@@ -426,14 +426,21 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
  * @param coupling_strength Array of new coupling strengths
  * @return PetscErrorCode
  * 
- * WARNING: One should make sure that the new coupling_strength array should be consistent between all partitions.
+ * For consistency, the coupling_strength array should be the same across all partitions.
+ * Thus only the master process sets the coupling strength, and then broadcasts it to all processes.
  */
 PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupling_strength)
 {
-    for (int i = 0; i < context->cnt_bond; i++)
+    // only the master process sets the coupling strength
+    if (context->partition_id == 0)
     {
-        context->coupling_strength[i] = coupling_strength[i];
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            context->coupling_strength[i] = coupling_strength[i];
+        }
     }
+    // broadcast the coupling strength to all processes
+    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
     PetscCall(build_hamiltonian_sparse(context, 0));
     return PETSC_SUCCESS;
 }
@@ -444,14 +451,19 @@ PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupli
  * @param delta Array of delta coupling strengths
  * @return PetscErrorCode
  * 
- * WARNING: One should make sure that the new coupling_strength array should be consistent between all partitions.
  */
 PetscErrorCode update_coupling_strength(Simulation_context *context, double *delta)
 {
-    for (int i = 0; i < context->cnt_bond; i++)
+    // only the master process updates the coupling strength
+    if (context->partition_id == 0)
     {
-        context->coupling_strength[i] += delta[i];
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            context->coupling_strength[i] += delta[i];
+        }
     }
+    // broadcast the coupling strength to all processes
+    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
     PetscCall(build_hamiltonian_sparse(context, 0));
     return PETSC_SUCCESS;
 }

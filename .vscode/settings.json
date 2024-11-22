@@ -21,6 +21,7 @@
         "math.h": "c",
         "slepcfn.h": "c",
         "petsc.h": "c",
-        "hamiltonian.h": "c"
+        "hamiltonian.h": "c",
+        "graph.h": "c"
     }
 }

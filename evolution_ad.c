@@ -269,6 +269,7 @@ static PetscErrorCode write_iteration_data(Simulation_context *context, int iter
         }
         fprintf(fp, "], \"norm2_error\": %.10e, \"norm2_grad\": %.10e}\n",
                 norm2_error, norm2_grad);
+        fflush(fp);
     }
     return PETSC_SUCCESS;
 }
@@ -339,7 +340,7 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad));
         print_iteration_data(iter, norm2_error, norm2_grad);
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
 
         if (norm2_error < 1e-5)
         {

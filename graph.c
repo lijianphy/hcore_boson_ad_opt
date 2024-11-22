@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include "graph.h"
 
-// Function to create graph
+/**
+ * Create a graph from a list of bonds.
+ */
 Graph* createGraph(int cnt_site, int cnt_bond, Pair *bonds) {
     if (cnt_site <= 0 || cnt_bond <= 0 || bonds == NULL) {
         return NULL;

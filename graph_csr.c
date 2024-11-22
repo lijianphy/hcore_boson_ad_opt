@@ -2,6 +2,9 @@
 #include <string.h>
 #include "graph_csr.h"
 
+/**
+ * Create a CSR matrix from a list of bonds and coupling strengths.
+ */
 csr_matrix* bonds_to_csr(int num_vertices, int num_bonds, Pair *bonds, double* coupling_strength) {
     csr_matrix* csr = malloc(sizeof(csr_matrix));
     if (!csr) return NULL;

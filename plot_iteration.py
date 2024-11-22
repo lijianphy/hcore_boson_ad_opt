@@ -31,7 +31,7 @@ def plot_iteration_data(data):
 
 def main():
     parser = argparse.ArgumentParser(description='Plot iteration data from JSON file')
-    parser.add_argument('json_file', help='Path to the JSON lines file', required=True)
+    parser.add_argument('json_file', help='Path to the JSON lines file')
     args = parser.parse_args()
 
     # Load data with error handling for incomplete last line

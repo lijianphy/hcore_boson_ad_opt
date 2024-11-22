@@ -54,7 +54,7 @@ def main():
     abs_max = max(abs(min(weights)), abs(max(weights)))
     vmin, vmax = -abs_max, abs_max
 
-    plt.rcParams['figure.dpi'] = 200
+    plt.rcParams['figure.dpi'] = 150
     # Create figure with a specific size and layout for colorbar
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -70,7 +70,7 @@ def main():
 
     # Draw nodes with different colors
     nx.draw_networkx_nodes(G, pos, node_color=node_colors, 
-                          node_size=600, alpha=0.9, ax=ax)
+                          node_size=400, alpha=0.9, ax=ax)
 
     # Draw edges with colors based on weights using diverging colormap
     edges = nx.draw_networkx_edges(G, pos, edge_color=weights, 

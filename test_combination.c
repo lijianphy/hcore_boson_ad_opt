@@ -39,6 +39,9 @@ void test_binomial() {
     CU_ASSERT_EQUAL(binomial(10, 10), 1);
     CU_ASSERT_EQUAL(binomial(30, 10), 30045015);
     CU_ASSERT_EQUAL(binomial(30, 15), 155117520);
+    CU_ASSERT_EQUAL(binomial(100, 5), 75287520);
+    CU_ASSERT_EQUAL(binomial(100, 95), 75287520);
+    CU_ASSERT_EQUAL(binomial(1230, 5), 23270683957746);
 }
 
 void test_bit_permutation() {

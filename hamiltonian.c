@@ -807,3 +807,18 @@ PetscErrorCode generate_fock_state(Vec state, State binary_repredentation, const
     PetscCall(VecAssemblyEnd(state));
     return PETSC_SUCCESS;
 }
+
+/**
+ * @brief Calculates the fidelity between two normalized vectors
+ * @param vec1 First vector
+ * @param vec2 Second vector
+ * @param result Pointer to store the fidelity
+ * @return PetscErrorCode
+ */
+PetscErrorCode calc_fidelity(Vec vec1, Vec vec2, double *result)
+{
+    PetscScalar inner_product;
+    PetscCall(VecDot(vec1, vec2, &inner_product));
+    *result = PetscAbsScalar(inner_product);
+    return PETSC_SUCCESS;
+}

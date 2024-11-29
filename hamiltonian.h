@@ -92,4 +92,5 @@ PetscErrorCode check_Hermitian(Mat A, PetscBool *is_hermitian);
 size_t local_partition_size(size_t total_size, size_t n_partition, size_t partition_id);
 size_t local_partition_begin(size_t total_size, size_t n_partition, size_t partition_id);
 
+PetscErrorCode calc_fidelity(Vec vec1, Vec vec2, double *result);
 #endif // HAMILTONIAN_H

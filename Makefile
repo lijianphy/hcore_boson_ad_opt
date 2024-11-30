@@ -13,7 +13,14 @@ ifeq ($(PLATFORM), Darwin)
   PACKAGES := $(petsc.pc) $(slepc.pc) openblas libcjson cunit mpich
 else
   # Linux
-  PACKAGES := petsc slepc blas lapacke libcjson cunit mpi
+  # sudo apt install libcjson-dev libcunit1-dev libopenmpi-dev
+  PETSC_DIR := /home/lijian/opt/petsc-3.22.1
+  PETSC_ARCH := linux-gnu-complex
+  SLEPC_DIR := /home/lijian/opt/slepc-3.22.1
+  petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
+  slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
+  openblas.pc := /home/lijian/opt/OpenBLAS/lib/pkgconfig/openblas.pc
+  PACKAGES := $(petsc.pc) $(slepc.pc) $(openblas.pc) libcjson cunit mpi
 endif
 
 # =============================================================================
@@ -26,6 +33,7 @@ CC := mpicc
 #   -std=c17: Use C17 standard
 #   -pedantic: Strict ISO C conformance
 #   -O2: Optimization level 2
+#   -march=native: Generate code for the local machine
 #   -fopenmp: Enable OpenMP support
 CFLAGS := -Wall -Wextra -std=c17 -pedantic -O2 -march=native -fopenmp $(shell pkg-config --cflags $(PACKAGES))
 # Linker flags - include all required libraries

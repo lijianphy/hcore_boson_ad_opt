@@ -94,7 +94,7 @@ PetscErrorCode largest_eigenvalue_sparse(Mat A, PetscReal *eigenvalue)
 
     // Print solver information
     PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Solution method: %s\n", type));
-    PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Number of iterations: %d\n", max_it));
+    PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Number of iterations: %d\n", (int)max_it));
     PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Error estimate: %g\n", (double)error));
 
     // Clean up

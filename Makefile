@@ -5,21 +5,21 @@
 PLATFORM := $(shell uname)
 ifeq ($(PLATFORM), Darwin)
   # macOS
-  PETSC_DIR := /Users/lijian/projects/petsc-3.22.1
+  PETSC_DIR := $(HOME)/projects/petsc-3.22.1
   PETSC_ARCH := macos-gnu-complex
-  SLEPC_DIR := /Users/lijian/projects/slepc-3.22.1
+  SLEPC_DIR := $(HOME)/projects/slepc-3.22.1
   petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
   slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
   PACKAGES := $(petsc.pc) $(slepc.pc) openblas libcjson cunit mpich
 else
   # Linux
   # sudo apt install libcjson-dev libcunit1-dev libopenmpi-dev
-  PETSC_DIR := /home/lijian/opt/petsc-3.22.1
+  PETSC_DIR := $(HOME)/opt/petsc-3.22.1
   PETSC_ARCH := linux-gnu-complex
-  SLEPC_DIR := /home/lijian/opt/slepc-3.22.1
+  SLEPC_DIR := $(HOME)/opt/slepc-3.22.1
   petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
   slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
-  openblas.pc := /home/lijian/opt/OpenBLAS/lib/pkgconfig/openblas.pc
+  openblas.pc := $(HOME)/opt/OpenBLAS/lib/pkgconfig/openblas.pc
   PACKAGES := $(petsc.pc) $(slepc.pc) $(openblas.pc) libcjson cunit mpi
 endif
 

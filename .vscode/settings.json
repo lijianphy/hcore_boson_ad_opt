@@ -22,6 +22,8 @@
         "slepcfn.h": "c",
         "petsc.h": "c",
         "hamiltonian.h": "c",
-        "graph.h": "c"
+        "graph.h": "c",
+        "random.h": "c",
+        "rng_config.h": "c"
     }
 }

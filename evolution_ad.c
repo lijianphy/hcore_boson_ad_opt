@@ -25,26 +25,7 @@
 #include "hamiltonian.h"
 #include "evolution_ad.h"
 #include "log.h"
-
-// Print the norm of a vector
-static PetscErrorCode print_vec_norm(Vec vec, const char *name)
-{
-    PetscReal norm;
-    PetscCall(VecNorm(vec, NORM_2, &norm));
-    printf_master("%s norm: %f\n", name, norm);
-    return PETSC_SUCCESS;
-}
-
-// Print the norm of the difference between two vectors
-static PetscErrorCode print_vec_diff_norm(Vec vec1, Vec vec2, const char *name)
-{
-    Vec diff;
-    PetscCall(VecDuplicate(vec1, &diff));
-    PetscCall(VecWAXPY(diff, -1.0, vec2, vec1));
-    print_vec_norm(diff, name);
-    PetscCall(VecDestroy(&diff));
-    return PETSC_SUCCESS;
-}
+#include "random.h"
 
 // Run forward evolution
 PetscErrorCode forward_evolution(Simulation_context *context)
@@ -69,11 +50,6 @@ PetscErrorCode forward_evolution(Simulation_context *context)
     {
         // printf_master("Forward evolution step %d\n", k_n);
         PetscCall(MFNSolve(mfn, forward_path[k_n], forward_path[k_n + 1]));
-#ifdef DEBUG
-        print_vec_norm(forward_path[k_n], "forward_path");
-        print_vec_diff_norm(forward_path[k_n + 1], context->target_vec, "forward_path_diff_target");
-        print_vec_diff_norm(forward_path[k_n + 1], context->init_vec, "forward_path_diff_init");
-#endif
     }
 
     PetscCall(MFNDestroy(&mfn));
@@ -105,10 +81,6 @@ PetscErrorCode backward_evolution(Simulation_context *context)
     {
         // printf_master("Backward evolution step %d\n", k_n);
         PetscCall(MFNSolve(mfn, backward_path[k_n], backward_path[k_n - 1]));
-#ifdef DEBUG
-        print_vec_norm(backward_path[k_n], "backward_path");
-        print_vec_diff_norm(backward_path[k_n - 1], backward_path[k_n], "backward_path_diff");
-#endif
     }
 
     PetscCall(MFNDestroy(&mfn));
@@ -205,13 +177,13 @@ static PetscErrorCode adam_optimizer(Simulation_context *context, double *grad, 
 }
 
 // Set the coupling strength to random values
-static PetscErrorCode set_random_coupling_strength(Simulation_context *context)
+static PetscErrorCode set_random_coupling_strength(Simulation_context *context, double a, double b)
 {
     // Only master process generates random values
     if (context->partition_id == 0) {
         for (int i = 0; i < context->cnt_bond; i++) {
             if (!context->isfixed[i]) {
-                context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0 + 1.0;
+                context->coupling_strength[i] = randu2(context->rng, a, b);
             }
         }
     }
@@ -234,7 +206,7 @@ PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, 
 
     while (grad_is_zero && iter < max_iterations)
     {
-        set_random_coupling_strength(context);
+        set_random_coupling_strength(context, 1.0, 3.0);
         // Run evolution and calculate gradient
         PetscCall(run_evolution(context));
         PetscCall(calculate_gradient(context, grad));
@@ -288,8 +260,6 @@ static PetscErrorCode write_iteration_data(Simulation_context *context, int iter
     }
     return PETSC_SUCCESS;
 }
-
-
 
 // Print iteration data during the optimization process
 static void print_iteration_data(int iter, double norm2_error, double norm2_grad, double fidelity)
@@ -397,7 +367,7 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
         if (restart_count > 0)
         {
             printf_master("Random initialize coupling strength\n");
-            set_random_coupling_strength(context);
+            set_random_coupling_strength(context, 1.0, 3.0);
         }
 
         int iter = 0;
@@ -444,5 +414,30 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
     free(grad);
     free(m);
     free(v);
+    return PETSC_SUCCESS;
+}
+
+// Random sampling of coupling strength
+PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b)
+{
+    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
+    double norm2_grad;
+    double fidelity;
+    double norm2_error;
+    for (int i = 0; i < cnt_samples; i++)
+    {
+        set_random_coupling_strength(context, a, b);
+        PetscCall(run_evolution(context));
+        PetscCall(calculate_gradient(context, grad));
+        // calculate the norm of gradient
+        norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
+        // calculate the norm of diff
+        PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
+        PetscCall(write_iteration_data(context, i, grad, norm2_error, norm2_grad, fidelity));
+        print_iteration_data(i, norm2_error, norm2_grad, fidelity);
+    }
+
+    free(grad);
     return PETSC_SUCCESS;
 }

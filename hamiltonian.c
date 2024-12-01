@@ -133,6 +133,14 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     PetscCall(VecDuplicateVecs(context->init_vec, context->time_steps + 1, &context->backward_path));
     PetscCall(VecCopy(context->init_vec, context->forward_path[0]));
 
+    // initalize random number generator
+    context->rng = (rng_t *)malloc(sizeof(rng_t));
+    set_seed(context->rng, 3141592653);
+    for (int i = 0; i < partition_id; i++) // set different random stream for each partition
+    {
+        jump_forward(context->rng);
+    }
+
     return PETSC_SUCCESS;
 }
 
@@ -221,6 +229,9 @@ PetscErrorCode free_simulation_context(Simulation_context *context)
     {
         fclose(context->output_file);
     }
+
+    // free random number generator
+    free(context->rng);
 
     return PETSC_SUCCESS;
 }

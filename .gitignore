@@ -20,3 +20,4 @@ test_optimize
 # Ignore OS-specific files
 .DS_Store
 Thumbs.db
+random_sampling

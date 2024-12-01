@@ -19,7 +19,8 @@ def main():
         sys.exit(1)
         
     random_numbers = [random.gauss(args.a, args.s) for _ in range(args.n)]
-    print(random_numbers)
+    formatted_numbers = [f'{x:.4f}' for x in random_numbers]
+    print('[' + ', '.join(formatted_numbers) + ']')
 
 if __name__ == '__main__':
     main()

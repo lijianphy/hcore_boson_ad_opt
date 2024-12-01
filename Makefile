@@ -1,26 +1,26 @@
 # =============================================================================
 # Configuration Section
 # =============================================================================
-# PETSc and SLEPc are scientific computing libraries
+
 PLATFORM := $(shell uname)
 ifeq ($(PLATFORM), Darwin)
-  # macOS
-  PETSC_DIR := $(HOME)/projects/petsc-3.22.1
-  PETSC_ARCH := macos-gnu-complex
-  SLEPC_DIR := $(HOME)/projects/slepc-3.22.1
-  petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
-  slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
-  PACKAGES := $(petsc.pc) $(slepc.pc) openblas libcjson cunit mpich
+    # macOS
+    PETSC_DIR := $(HOME)/projects/petsc-3.22.1
+    PETSC_ARCH := macos-gnu-complex
+    SLEPC_DIR := $(HOME)/projects/slepc-3.22.1
+    petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
+    slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
+    PACKAGES := $(petsc.pc) $(slepc.pc) openblas libcjson cunit mpich
 else
-  # Linux
-  # sudo apt install libcjson-dev libcunit1-dev libopenmpi-dev
-  PETSC_DIR := $(HOME)/opt/petsc-3.22.1
-  PETSC_ARCH := linux-gnu-complex
-  SLEPC_DIR := $(HOME)/opt/slepc-3.22.1
-  petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
-  slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
-  openblas.pc := $(HOME)/opt/OpenBLAS/lib/pkgconfig/openblas.pc
-  PACKAGES := $(petsc.pc) $(slepc.pc) $(openblas.pc) libcjson cunit mpi
+    # Linux
+    # sudo apt install libcjson-dev libcunit1-dev libopenmpi-dev
+    PETSC_DIR := $(HOME)/opt/petsc-3.22.1
+    PETSC_ARCH := linux-gnu-complex
+    SLEPC_DIR := $(HOME)/opt/slepc-3.22.1
+    petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
+    slepc.pc := $(SLEPC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/SLEPc.pc
+    openblas.pc := $(HOME)/opt/OpenBLAS/lib/pkgconfig/openblas.pc
+    PACKAGES := $(petsc.pc) $(slepc.pc) $(openblas.pc) libcjson cunit mpi
 endif
 
 # =============================================================================
@@ -47,9 +47,10 @@ SRCS := $(wildcard *.c)
 # Generate object file names by replacing .c with .o
 OBJS := $(SRCS:.c=.o)
 # List of test executables
-TEST_TARGETS := test_ad test_bits test_bits128 test_cblas test_combination test_hamiltonian test_vec_math test_optimize
+TEST_TARGETS := test_ad test_bits test_bits128 test_cblas test_combination test_hamiltonian test_vec_math test_optimize random_sampling
 # All final executables
 TARGETS := $(TEST_TARGETS)
+RANDOM_OBJS := random.o xoshiro256starstar.o xoshiro256plusplus.o
 
 # =============================================================================
 # Primary Targets (Phony Targets)
@@ -100,16 +101,19 @@ test_combination: test_combination.o combination.o
 test_vec_math: test_vec_math.o vec_math.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_hamiltonian: test_hamiltonian.o hamiltonian.o combination.o simu_config.o
+test_hamiltonian: test_hamiltonian.o hamiltonian.o combination.o simu_config.o $(RANDOM_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_ad: test_ad.o evolution_ad.o hamiltonian.o combination.o simu_config.o
+test_ad: test_ad.o evolution_ad.o hamiltonian.o combination.o simu_config.o $(RANDOM_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 test_cblas: test_cblas.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_optimize: test_optimize.o evolution_ad.o hamiltonian.o combination.o vec_math.o simu_config.o
+test_optimize: test_optimize.o evolution_ad.o hamiltonian.o combination.o vec_math.o simu_config.o $(RANDOM_OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+random_sampling: random_sampling.o evolution_ad.o hamiltonian.o combination.o vec_math.o simu_config.o $(RANDOM_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 # Clean all generated files

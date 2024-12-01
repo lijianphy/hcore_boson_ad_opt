@@ -11,6 +11,7 @@
 #include "bits.h"
 #include "bits128.h"
 #include "combination.h"
+#include "random.h"
 
 #define MAX_SITE 128 // maximum number of sites
 
@@ -76,6 +77,9 @@ typedef struct Simulation_context
     // output file
     // the format of output is JSON lines (also called newline-delimited JSON), see: https://jsonlines.org/
     FILE *output_file;
+
+    // Random number generator
+    rng_t* rng;
 } Simulation_context;
 
 // Core initialization and cleanup

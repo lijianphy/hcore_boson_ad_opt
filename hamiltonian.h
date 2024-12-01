@@ -53,6 +53,9 @@ typedef struct Simulation_context
     State initial_state;       // initial state for the evolution
     State target_state;        // target state for the evolution
 
+    // Fixed coupling configuration
+    int *isfixed;              // whether the coupling strength is fixed
+
     // MPI context
     int n_partition;  // number of partitions
     int partition_id; // partition id of current process

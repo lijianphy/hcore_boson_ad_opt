@@ -100,16 +100,16 @@ test_combination: test_combination.o combination.o
 test_vec_math: test_vec_math.o vec_math.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_hamiltonian: test_hamiltonian.o hamiltonian.o combination.o
+test_hamiltonian: test_hamiltonian.o hamiltonian.o combination.o simu_config.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_ad: test_ad.o evolution_ad.o hamiltonian.o combination.o
+test_ad: test_ad.o evolution_ad.o hamiltonian.o combination.o simu_config.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 test_cblas: test_cblas.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
-test_optimize: test_optimize.o evolution_ad.o hamiltonian.o combination.o vec_math.o
+test_optimize: test_optimize.o evolution_ad.o hamiltonian.o combination.o vec_math.o simu_config.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 # Clean all generated files

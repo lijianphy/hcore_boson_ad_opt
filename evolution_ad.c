@@ -23,7 +23,7 @@
 #include <mpi.h>
 
 #include "hamiltonian.h"
-// #include "evolution_ad.h"
+#include "evolution_ad.h"
 #include "log.h"
 
 // Print the norm of a vector
@@ -140,7 +140,12 @@ PetscErrorCode calculate_gradient(Simulation_context *context, double *grad)
     PetscCall(VecDuplicate(init_vec, &tmp));
     for (int i = 0; i < context->cnt_bond; i++) // for each bond
     {
-        PetscScalar sum = 0;
+        if (context->isfixed[i]) // skip fixed bonds
+        {
+            grad[i] = 0.0;
+            continue;
+        }
+        PetscScalar sum = 0.0;
         Mat m = context->single_bond_hams[i];
         // integrate using Trapezoidal rule, see https://en.wikipedia.org/wiki/Trapezoidal_rule
         for (int t = 0; t <= time_steps; t++)
@@ -167,6 +172,10 @@ static PetscErrorCode gradient_descent(Simulation_context *context, double *grad
     double *coupling_strength = context->coupling_strength;
     for (int i = 0; i < context->cnt_bond; i++)
     {
+        if (context->isfixed[i])
+        {
+            continue;
+        }
         coupling_strength[i] -= learning_rate * grad[i];
     }
     PetscCall(set_coupling_strength(context, coupling_strength));
@@ -181,6 +190,10 @@ static PetscErrorCode adam_optimizer(Simulation_context *context, double *grad, 
     double epsilon = 1e-8;
     for (int i = 0; i < context->cnt_bond; i++)
     {
+        if (context->isfixed[i])
+        {
+            continue;
+        }
         m[i] = beta1 * m[i] + (1 - beta1) * grad[i];
         v[i] = beta2 * v[i] + (1 - beta2) * grad[i] * grad[i];
         double m_hat = m[i] / (1 - pow(beta1, t));
@@ -197,7 +210,9 @@ static PetscErrorCode set_random_coupling_strength(Simulation_context *context)
     // Only master process generates random values
     if (context->partition_id == 0) {
         for (int i = 0; i < context->cnt_bond; i++) {
-            context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0 + 1.0;
+            if (!context->isfixed[i]) {
+                context->coupling_strength[i] = ((double)rand() / RAND_MAX) * 2.0 + 1.0;
+            }
         }
     }
     

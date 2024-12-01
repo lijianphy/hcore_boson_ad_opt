@@ -4,16 +4,8 @@
  *
  * This file contains functions for handling both sparse and dense representations
  * of Hamiltonian matrices used in hardcore boson simulations. It includes functionality
- * for reading configuration from a JSON file, validating the configuration, 
- * initializing the simulation context, building Hamiltonian matrices, and managing
+ * for initializing the simulation context, building Hamiltonian matrices, and managing
  * the simulation state.
- *
- * Key functionalities:
- * - Reading and validating JSON configuration files
- * - Initializing simulation context and Hamiltonian matrices
- * - Building sparse and dense Hamiltonian matrices
- * - Managing simulation states and paths
- * - Utility functions for partitioning and matrix operations
  */
 
 #include <stdint.h>
@@ -26,283 +18,7 @@
 #include <petscmat.h>
 #include "log.h"
 #include "hamiltonian.h"
-
-/**
- * @brief Validates the JSON schema for configuration
- * @param json The JSON object to validate
- * @return 1 if the JSON is valid, 0 otherwise
- */
-static int validate_json_schema(const cJSON *json)
-{
-    // Check required fields exist
-    const char *required_fields[] = {"cnt_site", "cnt_bond", "cnt_excitation", "bonds", "coupling_strength",
-                                     "total_time", "time_steps", "initial_state", "target_state"};
-    size_t num_required_fields = sizeof(required_fields) / sizeof(required_fields[0]);
-    for (size_t i = 0; i < num_required_fields; i++)
-    {
-        cJSON *item = cJSON_GetObjectItem(json, required_fields[i]);
-        if (item == NULL)
-        {
-            print_error_msg_mpi("Missing required field: %s", required_fields[i]);
-            return 0;
-        }
-    }
-
-    /// Check types and values
-    // Check numbers
-    const char *number_fields[] = {"cnt_site", "cnt_bond", "cnt_excitation", "total_time", "time_steps"};
-    size_t num_number_fields = sizeof(number_fields) / sizeof(number_fields[0]);
-    for (size_t i = 0; i < num_number_fields; i++)
-    {
-        if (!cJSON_IsNumber(cJSON_GetObjectItem(json, number_fields[i])))
-        {
-            print_error_msg_mpi("%s must be a number", number_fields[i]);
-            return 0;
-        }
-    }
-
-    // Check number of sites and excitations
-    int cnt_site = cJSON_GetObjectItem(json, "cnt_site")->valueint;
-    int cnt_bond = cJSON_GetObjectItem(json, "cnt_bond")->valueint;
-    int cnt_excitation = cJSON_GetObjectItem(json, "cnt_excitation")->valueint;
-    // cnt_site should be less than MAX_SITE
-    if (cnt_site >= MAX_SITE)
-    {
-        print_error_msg_mpi("cnt_site must be less than %d, got %d", MAX_SITE, cnt_site);
-        return 0;
-    }
-    // cnt_excitation should be > 0 and < cnt_site
-    if (cnt_excitation <= 0 || cnt_excitation >= cnt_site)
-    {
-        print_error_msg_mpi("cnt_excitation must be > 0 and < cnt_site, got %d", cnt_excitation);
-        return 0;
-    }
-
-    // Check arrays
-    const char *array_fields[] = {"bonds", "coupling_strength", "initial_state", "target_state"};
-    const int array_sizes[] = {cnt_bond, cnt_bond, cnt_excitation, cnt_excitation};
-    size_t num_array_fields = sizeof(array_fields) / sizeof(array_fields[0]);
-    for (size_t i = 0; i < num_array_fields; i++)
-    {
-        cJSON *array = cJSON_GetObjectItem(json, array_fields[i]);
-        if (!cJSON_IsArray(array))
-        {
-            print_error_msg_mpi("%s must be an array", array_fields[i]);
-            return 0;
-        }
-        if (cJSON_GetArraySize(array) != array_sizes[i])
-        {
-            print_error_msg_mpi("%s array size must be %d", array_fields[i], array_sizes[i]);
-            return 0;
-        }
-    }
-
-    // Validate each bond
-    cJSON *bonds = cJSON_GetObjectItem(json, "bonds");
-    cJSON *strengths = cJSON_GetObjectItem(json, "coupling_strength");
-    for (int i = 0; i < cnt_bond; i++)
-    {
-        cJSON *bond = cJSON_GetArrayItem(bonds, i);
-        if (!cJSON_IsArray(bond) || cJSON_GetArraySize(bond) != 2 ||
-            !cJSON_IsNumber(cJSON_GetArrayItem(bond, 0)) ||
-            !cJSON_IsNumber(cJSON_GetArrayItem(bond, 1)))
-        {
-            print_error_msg_mpi("Each bond must be an array of 2 integers");
-            return 0;
-        }
-        // first and second elements of bond should be between 0 and cnt_site - 1
-        int site1 = cJSON_GetArrayItem(bond, 0)->valueint;
-        int site2 = cJSON_GetArrayItem(bond, 1)->valueint;
-        if (site1 < 0 || site1 >= cnt_site || site2 < 0 || site2 >= cnt_site)
-        {
-            print_error_msg_mpi("Elements of bonds must be between 0 and cnt_site - 1");
-            return 0;
-        }
-        if (!cJSON_IsNumber(cJSON_GetArrayItem(strengths, i)))
-        {
-            print_error_msg_mpi("Each coupling strength must be a number");
-            return 0;
-        }
-    }
-
-    // Elements of bonds should be unique
-    for (int i = 0; i < cnt_bond; i++)
-    {
-        for (int j = i + 1; j < cnt_bond; j++)
-        {
-            cJSON *bond1 = cJSON_GetArrayItem(bonds, i);
-            cJSON *bond2 = cJSON_GetArrayItem(bonds, j);
-
-            int x1 = cJSON_GetArrayItem(bond1, 0)->valueint;
-            int y1 = cJSON_GetArrayItem(bond1, 1)->valueint;
-            int x2 = cJSON_GetArrayItem(bond2, 0)->valueint;
-            int y2 = cJSON_GetArrayItem(bond2, 1)->valueint;
-
-            if ((x1 == x2 && y1 == y2) || (x1 == y2 && y1 == x2))
-            {
-                print_error_msg_mpi("Elements of bonds must be unique");
-                return 0;
-            }
-        }
-    }
-
-    // Validate initial and target states
-    cJSON *initial_state = cJSON_GetObjectItem(json, "initial_state");
-    cJSON *target_state = cJSON_GetObjectItem(json, "target_state");
-    // array elements should be integers and between 0 and cnt_site - 1
-    for (int i = 0; i < cnt_excitation; i++)
-    {
-        if (!cJSON_IsNumber(cJSON_GetArrayItem(initial_state, i)) ||
-            !cJSON_IsNumber(cJSON_GetArrayItem(target_state, i)))
-        {
-            print_error_msg_mpi("Initial and target states must be arrays of integers");
-            return 0;
-        }
-        int initial_site = cJSON_GetArrayItem(initial_state, i)->valueint;
-        int target_site = cJSON_GetArrayItem(target_state, i)->valueint;
-        if (initial_site < 0 || initial_site >= cnt_site || target_site < 0 || target_site >= cnt_site)
-        {
-            print_error_msg_mpi("Initial and target states must be between 0 and cnt_site - 1");
-            return 0;
-        }
-    }
-
-    // elements of initial state and target state should be unique
-    for (int i = 0; i < cnt_excitation; i++)
-    {
-        for (int j = i + 1; j < cnt_excitation; j++)
-        {
-            if (cJSON_GetArrayItem(initial_state, i)->valueint == cJSON_GetArrayItem(initial_state, j)->valueint ||
-                cJSON_GetArrayItem(target_state, i)->valueint == cJSON_GetArrayItem(target_state, j)->valueint)
-            {
-                print_error_msg_mpi("Elements of initial and target states must be unique");
-                return 0;
-            }
-        }
-    }
-
-    return 1;
-}
-
-/**
- * @brief Reads configuration from a JSON file and sets the configuration in the context
- * @param file_name Path to the configuration JSON file
- * @param context Pointer to the simulation context to be populated
- * @throw Exits with error code 1 if file operations or JSON parsing fails
- */
-static void read_config(const char *file_name, Simulation_context *context)
-{
-    // Read the entire file into a string
-    FILE *file = fopen(file_name, "r");
-    if (file == NULL)
-    {
-        print_error_msg_mpi("Unable to open file %s", file_name);
-        exit(1);
-    }
-
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    rewind(file);
-
-    char *json_str = (char *)malloc(file_size + 1);
-    if (json_str == NULL)
-    {
-        print_error_msg_mpi("Unable to allocate memory");
-        exit(1);
-    }
-    long s = fread(json_str, 1, file_size, file);
-    if (s != file_size)
-    {
-        print_error_msg_mpi("Error reading file %s", file_name);
-        free(json_str);
-        exit(1);
-    }
-    json_str[file_size] = '\0';
-    fclose(file);
-
-    // Parse JSON
-    cJSON *json = cJSON_Parse(json_str);
-    if (json == NULL)
-    {
-        const char *error_ptr = cJSON_GetErrorPtr();
-        if (error_ptr != NULL)
-        {
-            print_error_msg_mpi("Error parsing JSON: %s", error_ptr);
-        }
-        free(json_str);
-        exit(1);
-    }
-
-    // Validate JSON schema
-    if (!validate_json_schema(json))
-    {
-        cJSON_Delete(json);
-        free(json_str);
-        exit(1);
-    }
-
-    // Extract configuration
-    context->cnt_site = cJSON_GetObjectItem(json, "cnt_site")->valueint;
-    context->cnt_bond = cJSON_GetObjectItem(json, "cnt_bond")->valueint;
-    context->cnt_excitation = cJSON_GetObjectItem(json, "cnt_excitation")->valueint;
-
-    // Read bonds and coupling_strength
-    context->bonds = (Pair *)malloc(context->cnt_bond * sizeof(Pair));
-    context->coupling_strength = (double *)malloc(context->cnt_bond * sizeof(double));
-
-    cJSON *bonds = cJSON_GetObjectItem(json, "bonds");
-    cJSON *strengths = cJSON_GetObjectItem(json, "coupling_strength");
-    for (int i = 0; i < context->cnt_bond; i++)
-    {
-        cJSON *bond = cJSON_GetArrayItem(bonds, i);
-        context->bonds[i].x = cJSON_GetArrayItem(bond, 0)->valueint;
-        context->bonds[i].y = cJSON_GetArrayItem(bond, 1)->valueint;
-        context->coupling_strength[i] = cJSON_GetArrayItem(strengths, i)->valuedouble;
-    }
-
-    // Read total_time, time_steps, initial_state, target_state
-    context->total_time = cJSON_GetObjectItem(json, "total_time")->valuedouble;
-    context->time_steps = cJSON_GetObjectItem(json, "time_steps")->valueint;
-    context->initial_state = 0;
-    context->target_state = 0;
-    cJSON *initial_state = cJSON_GetObjectItem(json, "initial_state");
-    cJSON *target_state = cJSON_GetObjectItem(json, "target_state");
-    for (int i = 0; i < context->cnt_excitation; i++)
-    {
-        context->initial_state |= (State)1 << cJSON_GetArrayItem(initial_state, i)->valueint;
-        context->target_state |= (State)1 << cJSON_GetArrayItem(target_state, i)->valueint;
-    }
-
-    // Cleanup
-    cJSON_Delete(json);
-    free(json_str);
-}
-
-/**
- * @brief Prints the current configuration settings
- * @param context Pointer to the simulation context containing the configuration
- * @return Always returns 0
- */
-static int print_config(const Simulation_context *context)
-{
-    printf("cnt_site: %d\n", context->cnt_site);
-    printf("cnt_bond: %d\n", context->cnt_bond);
-    printf("cnt_excitation: %d\n", context->cnt_excitation);
-
-    for (int i = 0; i < context->cnt_bond; i++)
-    {
-        printf("bond[%d]: %d %d %lf\n", i, context->bonds[i].x, context->bonds[i].y, context->coupling_strength[i]);
-    }
-
-    printf("total_time: %lf\n", context->total_time);
-    printf("time_steps: %d\n", context->time_steps);
-    printf("initial_state: ");
-    print_state(context->initial_state, context->cnt_site);
-    printf("target_state:  ");
-    print_state(context->target_state, context->cnt_site);
-
-    return 0;
-}
+#include "simu_config.h"
 
 /**
  * @brief Generate output file name from input file name and current time
@@ -365,7 +81,7 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     printf_master("Number of partitions: %d\n", n_partition);
 
     printf_master("Reading configuration from %s\n", file_name);
-    read_config(file_name, context);
+    PetscCall(read_config(file_name, context));
 
     printf_master("Got configuration:\n");
     if (partition_id == 0)
@@ -478,13 +194,17 @@ PetscErrorCode free_simulation_context(Simulation_context *context)
     // free bonds and coupling_strength
     free(context->bonds);
     free(context->coupling_strength);
+    free(context->isfixed);
     // free hamiltonian
     PetscCall(MatDestroy(&context->hamiltonian));
 
     // free single bond Hamiltonians
     for (int i = 0; i < context->cnt_bond; i++)
     {
-        PetscCall(MatDestroy(&context->single_bond_hams[i]));
+        if (!context->isfixed[i])
+        {
+            PetscCall(MatDestroy(&context->single_bond_hams[i]));
+        }
     }
     free(context->single_bond_hams);
 
@@ -756,6 +476,12 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
 
     for (int j = 0; j < cnt_bond; j++)
     {
+        if (context->isfixed[j])  // only build single bond Hamiltonian for non-fixed bonds
+        {
+            context->single_bond_hams[j] = NULL;
+            continue;
+        }
+
         Pair bond = bonds[j];
 
         // create the matrix
@@ -780,7 +506,10 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
 
     for (int j = 0; j < cnt_bond; j++)
     {
-        PetscCall(MatAssemblyEnd(single_bond_hams[j], MAT_FINAL_ASSEMBLY));
+        if (!context->isfixed[j])  // only build single bond Hamiltonian for non-fixed bonds
+        {
+            PetscCall(MatAssemblyEnd(single_bond_hams[j], MAT_FINAL_ASSEMBLY));
+        }
     }
     return PETSC_SUCCESS;
 }
@@ -819,6 +548,7 @@ PetscErrorCode calc_fidelity(Vec vec1, Vec vec2, double *result)
 {
     PetscScalar inner_product;
     PetscCall(VecDot(vec1, vec2, &inner_product));
-    *result = PetscAbsScalar(inner_product);
+    double abs_inner_product = PetscAbsScalar(inner_product);
+    *result = abs_inner_product * abs_inner_product;
     return PETSC_SUCCESS;
 }

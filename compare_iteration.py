@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import argparse
 import json
 from pathlib import Path
@@ -27,7 +28,7 @@ def plot_comparison(data1, data2, label1, label2):
 
     # First 2D density plot
     h1 = ax1.hist2d(data1['norm2_grad'], data1['norm2_error'], range=[[x_min, x_max], [y_min, y_max]],
-                    bins=50, cmap='viridis')
+                    bins=50, cmap='viridis', norm=LogNorm())
     ax1.set(xlabel='Gradient', ylabel='Error', title=f'Density Plot: {label1}')
     ax1.grid(True, alpha=0.3)
     ax1.set_xlim(x_min, x_max)
@@ -36,7 +37,7 @@ def plot_comparison(data1, data2, label1, label2):
 
     # Second 2D density plot
     h2 = ax2.hist2d(data2['norm2_grad'], data2['norm2_error'], range=[[x_min, x_max], [y_min, y_max]],
-                    bins=50, cmap='viridis')
+                    bins=50, cmap='viridis', norm=LogNorm())
     ax2.set(xlabel='Gradient', ylabel='Error', title=f'Density Plot: {label2}')
     ax2.grid(True, alpha=0.3)
     ax2.set_xlim(x_min, x_max)

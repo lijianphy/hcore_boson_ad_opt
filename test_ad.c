@@ -60,10 +60,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    double diff_norm1, diff_norm2;
+    double fidelity1, fidelity2;
 
     // Calculate the norm of the difference between the forward path at the last time step and the target vector
-    PetscCall(vec_diff_norm(context.forward_path[context.time_steps], context.target_vec, &diff_norm1));
+    PetscCall(calc_fidelity(context.forward_path[context.time_steps], context.target_vec, &fidelity1));
 
     // Update the coupling strength
     double *initial_coupling_strength = (double *)malloc(context.cnt_bond * sizeof(double));
@@ -87,11 +87,13 @@ int main(int argc, char *argv[])
         {
             new_coupling_strength[j] = initial_coupling_strength[j];
         }
-        new_coupling_strength[i] += delta;
+        if (!context.isfixed[i]) {
+            new_coupling_strength[i] += delta;
+        }
         PetscCall(set_coupling_strength(&context, new_coupling_strength));
         PetscCall(forward_evolution(&context));
-        PetscCall(vec_diff_norm(context.forward_path[context.time_steps], context.target_vec, &diff_norm2));
-        double finite_diff = (diff_norm2 * diff_norm2 - diff_norm1 * diff_norm1) / delta;
+        PetscCall(calc_fidelity(context.forward_path[context.time_steps], context.target_vec, &fidelity2));
+        double finite_diff = (fidelity1 - fidelity2) / delta;
         double relative_error = (grad[i] - finite_diff) / finite_diff;
         printf_master("Finite difference for bond %2d: %+.6lf, relative error: %+.6lf\n", i, finite_diff, relative_error);
     }

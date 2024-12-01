@@ -93,8 +93,10 @@ PetscErrorCode backward_evolution(Simulation_context *context)
 PetscErrorCode run_evolution(Simulation_context *context)
 {
     PetscCall(forward_evolution(context));
-    // set initial state for backward evolution as w = forward_path[time_steps] - target_vec
-    PetscCall(VecWAXPY(context->backward_path[context->time_steps], -1.0, context->target_vec, context->forward_path[context->time_steps]));
+    PetscScalar dot_product;
+    PetscCall(VecDot(context->forward_path[context->time_steps], context->target_vec, &dot_product));
+    PetscCall(VecCopy(context->target_vec, context->backward_path[context->time_steps]));
+    PetscCall(VecScale(context->backward_path[context->time_steps], dot_product));
     PetscCall(backward_evolution(context));
     return PETSC_SUCCESS;
 }
@@ -130,7 +132,7 @@ PetscErrorCode calculate_gradient(Simulation_context *context, double *grad)
             double factor = (t == 0 || t == time_steps) ? 0.5 : 1.0;
             sum += result * delta_t * factor;
         }
-        grad[i] = 2.0 * creal(sum);
+        grad[i] = -2.0 * creal(sum);
     }
     PetscCall(VecDestroy(&tmp));
 
@@ -193,51 +195,8 @@ static PetscErrorCode set_random_coupling_strength(Simulation_context *context, 
     return PETSC_SUCCESS;
 }
 
-// Randomly initialize the coupling strength such that the gradient is not zero
-PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, int max_iterations, double threshold, double *norm2_grad)
-{
-    double *coupling_strength = context->coupling_strength;
-    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
-    double *best_coupling_strength = (double *)malloc(context->cnt_bond * sizeof(double));
-    PetscBool grad_is_zero = PETSC_TRUE;
-    int iter = 0;
-    double norm2_error;
-    double max_norm2_grad = 0.0;
-
-    while (grad_is_zero && iter < max_iterations)
-    {
-        set_random_coupling_strength(context, 1.0, 3.0);
-        // Run evolution and calculate gradient
-        PetscCall(run_evolution(context));
-        PetscCall(calculate_gradient(context, grad));
-
-        // Check if gradient is zero
-        *norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
-        printf_master("Random initialization %d: norm2_error: %.6e, norm2_grad: %.6e\n", iter, norm2_error, *norm2_grad);
-        if (*norm2_grad > threshold)
-        {
-            grad_is_zero = PETSC_FALSE;
-        }
-        if (*norm2_grad > max_norm2_grad)
-        {
-            max_norm2_grad = *norm2_grad;
-            memcpy(best_coupling_strength, coupling_strength, context->cnt_bond * sizeof(double));
-        }
-        iter++;
-    }
-
-    // Set coupling strength to the one with the biggest norm2_grad
-    memcpy(coupling_strength, best_coupling_strength, context->cnt_bond * sizeof(double));
-    PetscCall(set_coupling_strength(context, coupling_strength));
-
-    free(grad);
-    free(best_coupling_strength);
-    return PETSC_SUCCESS;
-}
-
 // Write iteration data before the optimization functions (which will update the coupling strength)
-static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double *grad, double norm2_error, double norm2_grad, double fidelity)
+static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double *grad, double norm2_grad, double fidelity)
 {
     FILE *fp = context->output_file;
     if (fp && context->partition_id == 0)
@@ -254,22 +213,22 @@ static PetscErrorCode write_iteration_data(Simulation_context *context, int iter
             fprintf(fp, "%.10e%s", grad[i],
                     i < context->cnt_bond - 1 ? ", " : "");
         }
-        fprintf(fp, "], \"norm2_error\": %.10e, \"norm2_grad\": %.10e, \"infidelity\": %.10e}\n",
-                norm2_error, norm2_grad, 1.0 - fidelity);
+        fprintf(fp, "], \"norm2_grad\": %.10e, \"infidelity\": %.10e}\n",
+                norm2_grad, 1.0 - fidelity);
         fflush(fp);
     }
     return PETSC_SUCCESS;
 }
 
 // Print iteration data during the optimization process
-static void print_iteration_data(int iter, double norm2_error, double norm2_grad, double fidelity)
+static void print_iteration_data(int iter, double norm2_grad, double fidelity)
 {
     time_t now;
     char timestamp[20];
     time(&now);
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
-    printf_master("[%s] Iteration %4d: norm2_error: %.6e, norm2_grad: %.6e, infidelity: %.6e\n", timestamp, iter, norm2_error, norm2_grad, 1.0 - fidelity);
+    printf_master("[%s] Iteration %4d: infidelity: %.6e, norm2_grad: %.6e\n", timestamp, iter, 1.0 - fidelity, norm2_grad);
 }
 
 // Full gradient descent optimization process
@@ -277,7 +236,6 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
 {
     printf_master("Start optimizing the coupling strength using gradient descent with ");
     printf_master("max_iterations: %d, learning_rate: %.6e\n", max_iterations, learning_rate);
-    double norm2_error;
     double norm2_grad;
     double fidelity;
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
@@ -285,15 +243,13 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
     {
         PetscCall(run_evolution(context));
         PetscCall(calculate_gradient(context, grad));
-        // calculate the norm of diff
-        PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_error, norm2_grad, fidelity);
+        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        print_iteration_data(iter, norm2_grad, fidelity);
         PetscCall(gradient_descent(context, grad, learning_rate));
-        if (norm2_error < 1e-5)
+        if (1.0 - fidelity < 1e-5)
         {
             printf_master("Converged\n");
             break;
@@ -309,7 +265,6 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
     printf_master("Start optimizing the coupling strength using Adam optimizer with ");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
-    double norm2_error;
     double norm2_grad;
     double fidelity;
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
@@ -324,14 +279,12 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        // calculate the norm of diff
-        PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
-        PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_error, norm2_grad, fidelity);
+        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        print_iteration_data(iter, norm2_grad, fidelity);
         PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
 
-        if (norm2_error < 1e-5)
+        if (1.0 - fidelity < 1e-5)
         {
             printf_master("Converged\n");
             break;
@@ -348,7 +301,6 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
 {
     printf_master("Start optimizing the coupling strength using Adam optimizer with ");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
-    double norm2_error;
     double norm2_grad;
     double fidelity;
     double norm2_momentum;
@@ -376,10 +328,9 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
             PetscCall(run_evolution(context));
             PetscCall(calculate_gradient(context, grad));
             norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-            PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
             PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
-            PetscCall(write_iteration_data(context, iter, grad, norm2_error, norm2_grad, fidelity));
-            print_iteration_data(iter, norm2_error, norm2_grad, fidelity);
+            PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+            print_iteration_data(iter, norm2_grad, fidelity);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter + 1));
 
             norm2_momentum = cblas_dnrm2(context->cnt_bond, m, 1);
@@ -388,13 +339,13 @@ PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *
             if (iter == check_after_iters &&
                 norm2_grad < threshold &&
                 norm2_momentum < threshold &&
-                norm2_error > 0.5)
+                (1.0 - fidelity) > 0.5)
             {
                 printf_master("Optimization stuck, restarting with new random initialization\n");
                 break;
             }
 
-            if (norm2_error < 1e-5)
+            if ((1.0 - fidelity) < 1e-5)
             {
                 printf_master("Converged\n");
                 free(grad);
@@ -423,7 +374,6 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
     double norm2_grad;
     double fidelity;
-    double norm2_error;
     for (int i = 0; i < cnt_samples; i++)
     {
         set_random_coupling_strength(context, a, b);
@@ -431,11 +381,9 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        // calculate the norm of diff
-        PetscCall(VecNorm(context->backward_path[context->time_steps], NORM_2, &norm2_error));
         PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
-        PetscCall(write_iteration_data(context, i, grad, norm2_error, norm2_grad, fidelity));
-        print_iteration_data(i, norm2_error, norm2_grad, fidelity);
+        PetscCall(write_iteration_data(context, i, grad, norm2_grad, fidelity));
+        print_iteration_data(i, norm2_grad, fidelity);
     }
 
     free(grad);

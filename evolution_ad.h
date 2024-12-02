@@ -10,14 +10,22 @@
 
 #include "hamiltonian.h"
 
+typedef enum
+{
+    AD_V1 = 1,
+    AD_V2 = 2,
+    AD_V3 = 3
+} AD_TYPE;
+
 // Function declarations
 PetscErrorCode forward_evolution(Simulation_context* context);
 PetscErrorCode backward_evolution(Simulation_context* context);
-PetscErrorCode run_evolution(Simulation_context* context);
+PetscErrorCode run_evolution_v1(Simulation_context* context);
+PetscErrorCode run_evolution_v2(Simulation_context* context);
+PetscErrorCode run_evolution_v3(Simulation_context* context);
 PetscErrorCode calculate_gradient(Simulation_context* context, double* grad);
-PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate);
-PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2);
-PetscErrorCode random_initialize_coupling_strength(Simulation_context *context, int max_iterations, double threshold, double *norm2_grad);
-PetscErrorCode optimize_coupling_strength_adam_with_restart(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2);
-PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b);
+PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate, AD_TYPE ad_type);
+PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, AD_TYPE ad_type);
+PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type);
+PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2);
 #endif // EVOLUTION_AD_H

@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     Simulation_context* context = (Simulation_context*)malloc(sizeof(Simulation_context));
     PetscCall(init_simulation_context(context, argv[1]));
     printf_master("Start sampling the coupling strength\n");
-    PetscCall(random_sampling_coupling_strength(context, 10000, 0.05, 5.0));
+    PetscCall(random_sampling_coupling_strength(context, 10000, 0.05, 5.0, AD_V2));
 
     // Clean up
     printf_master("\nCleaning up\n");

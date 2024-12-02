@@ -18,42 +18,28 @@ int main(int argc, char *argv[])
     const char *help = "Optimize the coupling strength using gradient descent\n";
     // Initialize PETSc and SLEPc
     PetscCall(SlepcInitialize(&argc, &argv, NULL, help));
-
     if (argc != 2)
     {
         print_error_msg_mpi("Usage: %s <config_file>", argv[0]);
         exit(1);
     }
 
-    Simulation_context context = {0}; // Initialize all fields to 0
-    PetscCall(init_simulation_context(&context, argv[1]));
-
-    // printf_master("Random initialize coupling strength\n");
-    // double norm2_grad;
-    // double threshold = 1e-3;
-    // PetscCall(random_initialize_coupling_strength(&context, 100, threshold, &norm2_grad));
-    // if (norm2_grad < threshold)
-    // {
-    //     printf_master("WARNING: Gradient is small after random initialization\n");
-    // }
-
+    Simulation_context *context = (Simulation_context *)malloc(sizeof(Simulation_context));
+    PetscCall(init_simulation_context(context, argv[1]));
 
     printf_master("Start optimizing the coupling strength\n");
 
-    // run the optimization using gradient descent
-    // PetscCall(optimize_coupling_strength_gd(&context, 3000, 0.01));
-
     // run the optimization using Adam optimizer
     // Generally, Adam optimizer converges faster than gradient descent
-    PetscCall(optimize_coupling_strength_adam(&context, 10000, 0.01, 0.9, 0.999));
-    // PetscCall(optimize_coupling_strength_adam_with_restart(&context, 3000, 0.001, 0.9, 0.999));
+    PetscCall(optimize_coupling_strength_adam(context, 10000, 0.01, 0.9, 0.999, AD_V1));
+    // PetscCall(optimize_coupling_strength_adam_with_phi(context, 50000, 0.01, 0.9, 0.999));
 
     // print the optimized coupling strength
     printf_master("Optimized coupling strength:\n");
-    for (int i = 0; i < context.cnt_bond; i++)
+    for (int i = 0; i < context->cnt_bond; i++)
     {
-        printf_master("%lf", context.coupling_strength[i]);
-        if (i < context.cnt_bond - 1)
+        printf_master("%lf", context->coupling_strength[i]);
+        if (i < context->cnt_bond - 1)
         {
             printf_master(", ");
         }
@@ -62,7 +48,8 @@ int main(int argc, char *argv[])
 
     // Clean up
     printf_master("\nCleaning up\n");
-    PetscCall(free_simulation_context(&context));
+    PetscCall(free_simulation_context(context));
+    free(context);
     PetscCall(SlepcFinalize());
     return 0;
 }

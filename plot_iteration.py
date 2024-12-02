@@ -43,23 +43,24 @@ def plot_iteration_data(data):
     plt.rcParams['figure.dpi'] = 200
 
     # Create subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    # fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, ax1 = plt.subplots(1, 1, figsize=(12, 5))
 
     # First subplot
-    ax1.plot(data['iteration'], data['norm2_error'], label='Error')
+    ax1.plot(data['iteration'], data['infidelity'], label='infidelity')
     ax1.plot(data['iteration'], data['norm2_grad'], label='Gradient')
     ax1.set_yscale('log')
     ax1.set(xlabel='Iteration', ylabel='Error', title='Error vs. Iteration')
     ax1.grid()
     ax1.legend()
 
-    # Second subplot
-    ax2.scatter(data['norm2_grad'], data['norm2_error'], label='Error vs. Gradient', s=5, alpha=0.5)
-    ax2.set_xscale('log')
-    ax2.set_yscale('log')
-    ax2.set(xlabel='Gradient', ylabel='Error', title='Error vs. Gradient')
-    ax2.grid()
-    ax2.legend()
+    # # Second subplot
+    # ax2.scatter(data['norm2_grad'], data['infidelity'], label='infidelity vs. Gradient', s=5, alpha=0.5)
+    # ax2.set_xscale('log')
+    # ax2.set_yscale('log')
+    # ax2.set(xlabel='Gradient', ylabel='infidelity', title='infidelity vs. Gradient')
+    # ax2.grid()
+    # ax2.legend()
 
     plt.tight_layout()
     plt.show()

@@ -23,11 +23,11 @@ def plot_comparison(data1, data2, label1, label2):
     # Calculate common limits
     x_min = min(data1['norm2_grad'].min(), data2['norm2_grad'].min())
     x_max = max(data1['norm2_grad'].max(), data2['norm2_grad'].max())
-    y_min = min(data1['norm2_error'].min(), data2['norm2_error'].min())
-    y_max = max(data1['norm2_error'].max(), data2['norm2_error'].max())
+    y_min = min(data1['infidelity'].min(), data2['infidelity'].min())
+    y_max = max(data1['infidelity'].max(), data2['infidelity'].max())
 
     # First 2D density plot
-    h1 = ax1.hist2d(data1['norm2_grad'], data1['norm2_error'], range=[[x_min, x_max], [y_min, y_max]],
+    h1 = ax1.hist2d(data1['norm2_grad'], data1['infidelity'], range=[[x_min, x_max], [y_min, y_max]],
                     bins=50, cmap='viridis', norm=LogNorm())
     ax1.set(xlabel='Gradient', ylabel='Error', title=f'Density Plot: {label1}')
     ax1.grid(True, alpha=0.3)
@@ -36,7 +36,7 @@ def plot_comparison(data1, data2, label1, label2):
     fig.colorbar(h1[3], ax=ax1, label='Count')
 
     # Second 2D density plot
-    h2 = ax2.hist2d(data2['norm2_grad'], data2['norm2_error'], range=[[x_min, x_max], [y_min, y_max]],
+    h2 = ax2.hist2d(data2['norm2_grad'], data2['infidelity'], range=[[x_min, x_max], [y_min, y_max]],
                     bins=50, cmap='viridis', norm=LogNorm())
     ax2.set(xlabel='Gradient', ylabel='Error', title=f'Density Plot: {label2}')
     ax2.grid(True, alpha=0.3)

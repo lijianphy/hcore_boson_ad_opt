@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 
     // run the optimization using Adam optimizer
     // Generally, Adam optimizer converges faster than gradient descent
-    PetscCall(optimize_coupling_strength_adam(context, 10000, 0.01, 0.9, 0.999, AD_V1));
+    PetscCall(optimize_coupling_strength_adam(context, 3, 0.01, 0.9, 0.999, AD_V1));
     // PetscCall(optimize_coupling_strength_adam_with_phi(context, 50000, 0.01, 0.9, 0.999));
 
     // print the optimized coupling strength

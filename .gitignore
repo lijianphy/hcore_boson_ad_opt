@@ -16,6 +16,7 @@ test_optimize
 *.out
 *.log
 *.jsonl
+output/*
 
 # Ignore OS-specific files
 .DS_Store

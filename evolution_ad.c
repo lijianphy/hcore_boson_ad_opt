@@ -310,12 +310,12 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity);
-        PetscCall(gradient_descent(context, grad, learning_rate));
-        if (1.0 - fidelity < 1e-5)
+        if ((1.0 - fidelity) < 1e-5)
         {
             printf_master("Converged\n");
             break;
         }
+        PetscCall(gradient_descent(context, grad, learning_rate));
     }
     free(grad);
     return PETSC_SUCCESS;
@@ -347,13 +347,14 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity);
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
-
-        if (1.0 - fidelity < 1e-5)
+        
+        if ((1.0 - fidelity) < 1e-5)
         {
             printf_master("Converged\n");
             break;
         }
+
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
     }
     free(grad);
     free(m);
@@ -401,23 +402,78 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         infidelity = 1.0 - fidelity;
 
-        // Check if we should change phi
-        if (phi_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1) {
-            printf_master("Gradient too small (%.2e), generating new phi\n", norm2_grad);
-            PetscCall(get_random_phi(context, &phi));
-            phi_change_cooldown = 0;
-        }
-        phi_change_cooldown++;
-
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity);
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
 
         if (infidelity < 1e-5)
         {
             printf_master("Converged\n");
             break;
         }
+
+        // Check if we should change phi
+        if (phi_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1) {
+            printf_master("Gradient too small (%.2e), generating new phi\n", norm2_grad);
+            PetscCall(get_random_phi(context, &phi));
+            phi_change_cooldown = 0;
+            continue;
+        }
+        phi_change_cooldown++;
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
+    }
+    free(grad);
+    free(m);
+    free(v);
+    return PETSC_SUCCESS;
+}
+
+// Full Adam optimization process with changing phi
+PetscErrorCode optimize_coupling_strength_adam_change_loss(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
+{
+    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
+
+    int loss_id = 0;
+    PetscErrorCode (*run_evolution)(Simulation_context*) = NULL;
+    PetscErrorCode (*loss_list[2])(Simulation_context*) = {run_evolution_v2, run_evolution_v3};
+    double norm2_grad;
+    double fidelity;
+    double infidelity;
+    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *m = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *v = (double *)malloc(context->cnt_bond * sizeof(double));
+    memset(m, 0, context->cnt_bond * sizeof(double));
+    memset(v, 0, context->cnt_bond * sizeof(double));
+
+    int loss_change_cooldown = 0; // Prevent too frequent phi changes
+
+    for (int iter = 0; iter < max_iterations; iter++)
+    {
+        run_evolution = loss_list[loss_id];
+        PetscCall(run_evolution(context));
+        PetscCall(calculate_gradient(context, grad));
+        norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
+        infidelity = 1.0 - fidelity;
+
+        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        print_iteration_data(iter, norm2_grad, fidelity);
+
+        if (infidelity < 1e-5)
+        {
+            printf_master("Converged\n");
+            break;
+        }
+
+        // Check if we should change loss
+        if (loss_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1) {
+            loss_id = (loss_id + 1) % 2;
+            printf_master("Gradient too small (%.2e), change loss to %d\n", norm2_grad, loss_id);
+            loss_change_cooldown = 0;
+            continue;
+        }
+        loss_change_cooldown++;
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
     }
     free(grad);
     free(m);

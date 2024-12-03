@@ -28,4 +28,5 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
 PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, AD_TYPE ad_type);
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type);
 PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2);
+PetscErrorCode optimize_coupling_strength_adam_change_loss(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2);
 #endif // EVOLUTION_AD_H

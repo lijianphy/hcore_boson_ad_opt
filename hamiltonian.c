@@ -39,17 +39,29 @@ static char *generate_output_file_name(const char *file_name)
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
     
-    // Generate output filename with timestamp
-    char *output_file = (char *)malloc(base_len + 32); // enough space for name + timestamp + .json
+    // Generate random hex string
+    char random_str[9];  // 8 chars + null terminator
+    unsigned int random_val;
+    FILE *f = fopen("/dev/urandom", "rb");
+    if (f) {
+        fread(&random_val, sizeof(random_val), 1, f);
+        fclose(f);
+    } else {
+        random_val = (unsigned int)time(NULL) ^ (unsigned int)clock();
+    }
+    snprintf(random_str, sizeof(random_str), "%08x", random_val);
     
-    // Copy base name (without extension) and add timestamp
+    // Generate output filename with timestamp and random string
+    char *output_file = (char *)malloc(base_len + 48); // enough space for name + random + timestamp + .jsonl
+    
+    // Copy base name (without extension) and add random string and timestamp
     memcpy(output_file, base_name, base_len);
     output_file[base_len] = '\0';
     
-    // output file name format: base_name_YYYYMMDD-HHMMSS.jsonl
-    sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d.jsonl", 
+    // output file name format: base_name_RANDOM_YYYYMMDD-HHMMSS.jsonl
+    sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d_%s.jsonl",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec);
+            tm.tm_hour, tm.tm_min, tm.tm_sec, random_str);
     
     return output_file;
 }

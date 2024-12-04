@@ -31,7 +31,7 @@ class OptimizationMonitor:
         self.error_line, = self.ax1.semilogy([], [], 'b-', label='Current')
         self.error_min_line, = self.ax1.semilogy([], [], 'r.', label='Min')
         self.ax1.set_xlabel('Iteration')
-        self.ax1.set_ylabel('norm2_error')
+        self.ax1.set_ylabel('infidelity')
         self.ax1.grid(True)
         self.ax1.set_title('Optimization Progress')
         self.ax1.legend()
@@ -66,7 +66,7 @@ class OptimizationMonitor:
                     try:
                         data = json.loads(line)
                         self.iterations.append(data['iteration'])
-                        error = data['norm2_error']
+                        error = data['infidelity']
                         grad = data['norm2_grad']
                         self.norm2_errors.append(error)
                         self.norm2_grads.append(grad)

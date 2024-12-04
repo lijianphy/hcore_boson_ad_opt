@@ -125,7 +125,9 @@ PetscErrorCode run_evolution_v3(Simulation_context *context)
     if (norm < 1e-10)
     {
         dot_product = 1.0;
-    } else {
+    }
+    else
+    {
         dot_product /= norm;
     }
     PetscCall(VecWAXPY(context->backward_path[context->time_steps], -1.0 * dot_product, context->target_vec, context->forward_path[context->time_steps]));
@@ -144,7 +146,7 @@ PetscErrorCode run_evolution_with_phi(Simulation_context *context, PetscScalar p
 }
 
 // Add this helper function before all optimization functions
-static PetscErrorCode (*get_evolution_function(AD_TYPE ad_type))(Simulation_context*)
+static PetscErrorCode (*get_evolution_function(AD_TYPE ad_type))(Simulation_context *)
 {
     switch (ad_type)
     {
@@ -240,14 +242,17 @@ static PetscErrorCode adam_optimizer(Simulation_context *context, double *grad, 
 static PetscErrorCode set_random_coupling_strength(Simulation_context *context, double a, double b)
 {
     // Only master process generates random values
-    if (context->partition_id == 0) {
-        for (int i = 0; i < context->cnt_bond; i++) {
-            if (!context->isfixed[i]) {
+    if (context->partition_id == 0)
+    {
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            if (!context->isfixed[i])
+            {
                 context->coupling_strength[i] = randu2(context->rng, a, b);
             }
         }
     }
-    
+
     // Set Hamiltonian with the new coupling strengths
     PetscCall(set_coupling_strength(context, context->coupling_strength));
     return PETSC_SUCCESS;
@@ -294,8 +299,8 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
 {
     printf_master("Start optimizing the coupling strength using gradient descent with ");
     printf_master("max_iterations: %d, learning_rate: %.6e\n", max_iterations, learning_rate);
-    
-    PetscErrorCode (*run_evolution)(Simulation_context*) = get_evolution_function(ad_type);
+
+    PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
     PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double norm2_grad;
@@ -305,7 +310,7 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
     {
         PetscCall(run_evolution(context));
         PetscCall(calculate_gradient(context, grad));
-        PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
@@ -326,8 +331,8 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
 {
     printf_master("Start optimizing the coupling strength using Adam optimizer with ");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
-    
-    PetscErrorCode (*run_evolution)(Simulation_context*) = get_evolution_function(ad_type);
+
+    PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
     PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double norm2_grad;
@@ -344,10 +349,10 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity);
-        
+
         if ((1.0 - fidelity) < 1e-5)
         {
             printf_master("Converged\n");
@@ -364,7 +369,8 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
 
 PetscErrorCode get_random_phi(Simulation_context *context, PetscScalar *phi)
 {
-    if (context->partition_id == 0) {
+    if (context->partition_id == 0)
+    {
         double phase = randu2(context->rng, 0.0, 2.0 * M_PI);
         PetscScalar phi_real = cos(phase);
         PetscScalar phi_imag = sin(phase);
@@ -373,6 +379,46 @@ PetscErrorCode get_random_phi(Simulation_context *context, PetscScalar *phi)
     // broadcast phi to all processes
     PetscCall(MPI_Bcast(phi, 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
 
+    return PETSC_SUCCESS;
+}
+
+// Full Adam optimization process
+PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phase)
+{
+    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
+
+    PetscScalar phi = cos(phase) + I * sin(phase);
+
+    double norm2_grad;
+    double fidelity;
+    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *m = (double *)malloc(context->cnt_bond * sizeof(double));
+    double *v = (double *)malloc(context->cnt_bond * sizeof(double));
+    memset(m, 0, context->cnt_bond * sizeof(double));
+    memset(v, 0, context->cnt_bond * sizeof(double));
+
+    for (int iter = 0; iter < max_iterations; iter++)
+    {
+        PetscCall(run_evolution_with_phi(context, phi));
+        PetscCall(calculate_gradient(context, grad));
+        // calculate the norm of gradient
+        norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
+        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        print_iteration_data(iter, norm2_grad, fidelity);
+
+        if ((1.0 - fidelity) < 1e-5)
+        {
+            printf_master("Converged\n");
+            break;
+        }
+
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
+    }
+    free(grad);
+    free(m);
+    free(v);
     return PETSC_SUCCESS;
 }
 
@@ -412,7 +458,8 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
         }
 
         // Check if we should change phi
-        if (phi_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1) {
+        if (phi_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1)
+        {
             printf_master("Gradient too small (%.2e), generating new phi\n", norm2_grad);
             PetscCall(get_random_phi(context, &phi));
             phi_change_cooldown = 0;
@@ -427,64 +474,12 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
     return PETSC_SUCCESS;
 }
 
-// Full Adam optimization process with changing phi
-PetscErrorCode optimize_coupling_strength_adam_change_loss(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
-{
-    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
-    printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
-    int loss_id = 0;
-    PetscErrorCode (*run_evolution)(Simulation_context*) = NULL;
-    PetscErrorCode (*loss_list[2])(Simulation_context*) = {run_evolution_v2, run_evolution_v3};
-    double norm2_grad;
-    double fidelity;
-    double infidelity;
-    double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
-    double *m = (double *)malloc(context->cnt_bond * sizeof(double));
-    double *v = (double *)malloc(context->cnt_bond * sizeof(double));
-    memset(m, 0, context->cnt_bond * sizeof(double));
-    memset(v, 0, context->cnt_bond * sizeof(double));
-
-    int loss_change_cooldown = 0; // Prevent too frequent phi changes
-
-    for (int iter = 0; iter < max_iterations; iter++)
-    {
-        run_evolution = loss_list[loss_id];
-        PetscCall(run_evolution(context));
-        PetscCall(calculate_gradient(context, grad));
-        norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
-        infidelity = 1.0 - fidelity;
-
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_grad, fidelity);
-
-        if (infidelity < 1e-5)
-        {
-            printf_master("Converged\n");
-            break;
-        }
-
-        // Check if we should change loss
-        if (loss_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1) {
-            loss_id = (loss_id + 1) % 2;
-            printf_master("Gradient too small (%.2e), change loss to %d\n", norm2_grad, loss_id);
-            loss_change_cooldown = 0;
-            continue;
-        }
-        loss_change_cooldown++;
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
-    }
-    free(grad);
-    free(m);
-    free(v);
-    return PETSC_SUCCESS;
-}
 
 // Random sampling of coupling strength
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type)
 {
-    PetscErrorCode (*run_evolution)(Simulation_context*) = get_evolution_function(ad_type);
+    PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
     PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
@@ -497,11 +492,142 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(calc_fidelity(context->forward_path[context->time_steps] , context->target_vec, &fidelity));
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, i, grad, norm2_grad, fidelity));
         print_iteration_data(i, norm2_grad, fidelity);
     }
 
     free(grad);
+    return PETSC_SUCCESS;
+}
+
+// Full Adam optimization process with parallel instances
+PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context_list, int cnt_parallel, PetscScalar *phi_list, int max_iterations, double learning_rate, double beta1, double beta2)
+{
+    printf_master("Start optimizing the coupling strength using parallel Adam optimizer with\n");
+    printf_master("parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
+                  cnt_parallel, max_iterations, learning_rate, beta1, beta2);
+
+    Simulation_context *context = context_list + 0;
+    int cnt_bond = context->cnt_bond;
+    
+    // Allocate memory for optimization variables
+    double *grad_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
+    double *m_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
+    double *v_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
+    memset(m_list, 0, cnt_bond * sizeof(double) * cnt_parallel);
+    memset(v_list, 0, cnt_bond * sizeof(double) * cnt_parallel);
+
+    // Track current and previous fidelities
+    double *fidelities = (double *)malloc(cnt_parallel * sizeof(double));
+    double *prev_fidelities = (double *)malloc(cnt_parallel * sizeof(double));
+    double *norm2_grads = (double *)malloc(cnt_parallel * sizeof(double));
+    memset(fidelities, 0, cnt_parallel * sizeof(double));
+    memset(prev_fidelities, 0, cnt_parallel * sizeof(double));
+    PetscBool converged = PETSC_FALSE;
+
+    double *grad = NULL;
+    double *m = NULL;
+    double *v = NULL;
+
+    // Initialize phi_list
+    if (context->partition_id == 0) {
+        printf_master("Initialize phi_list:\n");
+        for (int p = 0; p < cnt_parallel; p++) {
+            double phase = randu2(context_list->rng, 0.0, 2.0 * M_PI);
+            phi_list[p] = cos(phase) + I * sin(phase);
+        }
+    }
+    PetscCall(MPI_Bcast(phi_list, cnt_parallel * 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+
+    int phi_change_cooldown = 0;
+
+    for (int iter = 0; iter < max_iterations; iter++) {
+        // Store previous fidelities
+        memcpy(prev_fidelities, fidelities, cnt_parallel * sizeof(double));
+
+        // Run one iteration for each parallel instance
+        for (int p = 0; p < cnt_parallel; p++) {
+            context = context_list + p;
+            grad = grad_list + p * cnt_bond;
+            m = m_list + p * cnt_bond;
+            v = v_list + p * cnt_bond;
+            
+            PetscCall(run_evolution_with_phi(context, phi_list[p]));
+            PetscCall(calculate_gradient(context, grad));
+            norm2_grads[p] = cblas_dnrm2(cnt_bond, grad, 1);
+            PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelities[p]));
+
+            PetscCall(write_iteration_data(context_list + 0, iter * cnt_parallel + p, grad, norm2_grads[p], fidelities[p]));
+            printf_master("[Instance %d] ", p);
+            print_iteration_data(iter, norm2_grads[p], fidelities[p]);
+
+            if (1.0 - fidelities[p] < 1e-5) {
+                printf_master("Converged in instance %d\n", p);
+                converged = PETSC_TRUE;
+                break;
+            }
+        }
+
+        if (converged) break;
+
+        // Check for fidelity order changes and perform inheritance
+        for (int i = 0; i < cnt_parallel; i++) {
+            for (int j = i + 1; j < cnt_parallel; j++) {
+                if (prev_fidelities[i] < prev_fidelities[j] && fidelities[i] > fidelities[j]) {
+                    // i's fidelity has improved beyond j's - j should inherit from i
+                    printf_master("Instance %d's fidelity (%.6e) surpassed instance %d's (%.6e). Inheriting...\n",
+                                i, fidelities[i], j, fidelities[j]);
+                    
+                    // Copy coupling strength and optimizer state
+                    PetscCall(set_coupling_strength(context_list + j, (context_list + i)->coupling_strength));
+                    memcpy(m_list + j * cnt_bond, m_list + i * cnt_bond, cnt_bond * sizeof(double));
+                    memcpy(v_list + j * cnt_bond, v_list + i * cnt_bond, cnt_bond * sizeof(double));
+
+                    // Generate new random phi for the inheriting instance
+                    if (context->partition_id == 0) {
+                        double phase = randu2(context_list->rng, 0.0, 2.0 * M_PI);
+                        phi_list[j] = cos(phase) + I * sin(phase);
+                    }
+                    PetscCall(MPI_Bcast(&phi_list[j], 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+                }
+            }
+        }
+
+        // Apply optimizer updates
+        for (int p = 0; p < cnt_parallel; p++) {
+            context = context_list + p;
+            grad = grad_list + p * cnt_bond;
+            m = m_list + p * cnt_bond;
+            v = v_list + p * cnt_bond;
+            PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
+        }
+
+        // Handle phi changes for instances with small gradients
+        if (phi_change_cooldown >= 10) {
+            int best_idx = 0;
+            for (int p = 1; p < cnt_parallel; p++) {
+                if (fidelities[p] > fidelities[best_idx]) best_idx = p;
+            }
+
+            for (int p = 0; p < cnt_parallel; p++) {
+                if (p != best_idx && norm2_grads[p] < 1e-3 && (1.0 - fidelities[p]) > 0.1) {
+                    printf_master("Instance %d: Gradient too small (%.2e), generating new phi\n", p, norm2_grads[p]);
+                    PetscCall(get_random_phi(context, phi_list + p));
+                }
+            }
+            phi_change_cooldown = 0;
+        }
+        phi_change_cooldown++;
+    }
+
+    // Cleanup
+    free(grad_list);
+    free(m_list);
+    free(v_list);
+    free(fidelities);
+    free(prev_fidelities);
+    free(norm2_grads);
+
     return PETSC_SUCCESS;
 }

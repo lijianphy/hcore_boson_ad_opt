@@ -25,13 +25,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    int cnt_parallel = 5;
-    double *phi_list = (double *)malloc(cnt_parallel * sizeof(double));
-    for (int i = 0; i < cnt_parallel; i++)
-    {
-        phi_list[i] = 2.0 * M_PI * i / cnt_parallel;
-    }
-
+    int cnt_parallel = 10;
     Simulation_context *context_list = (Simulation_context *)malloc(cnt_parallel * sizeof(Simulation_context));
     for (int i = 0; i < cnt_parallel; i++)
     {
@@ -39,7 +33,7 @@ int main(int argc, char *argv[])
     }
 
     printf_master("Start optimizing the coupling strength in parallel\n");
-    PetscCall(optimize_coupling_strength_adam_parallel(context_list, cnt_parallel, phi_list, 10000, 0.01, 0.9, 0.999));
+    PetscCall(optimize_coupling_strength_adam_parallel(context_list, cnt_parallel, 10000, 0.01, 0.9, 0.999));
 
     // Clean up
     printf_master("\nCleaning up\n");

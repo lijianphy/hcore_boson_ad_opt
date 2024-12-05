@@ -136,11 +136,11 @@ PetscErrorCode run_evolution_v3(Simulation_context *context)
 }
 
 // Run forward and backward evolution
-PetscErrorCode run_evolution_with_phi(Simulation_context *context, PetscScalar phi)
+PetscErrorCode run_evolution_with_phi(Simulation_context *context, double phi)
 {
     PetscCall(forward_evolution(context));
-    PetscScalar phi_normalized = phi / cabs(phi);
-    PetscCall(VecWAXPY(context->backward_path[context->time_steps], -1.0 * phi_normalized, context->target_vec, context->forward_path[context->time_steps]));
+    PetscScalar phase_factor = cos(phi) + I * sin(phi);
+    PetscCall(VecWAXPY(context->backward_path[context->time_steps], -1.0 * phase_factor, context->target_vec, context->forward_path[context->time_steps]));
     PetscCall(backward_evolution(context));
     return PETSC_SUCCESS;
 }
@@ -367,28 +367,46 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
     return PETSC_SUCCESS;
 }
 
-PetscErrorCode get_random_phi(Simulation_context *context, PetscScalar *phi)
+PetscErrorCode get_random_phi(Simulation_context *context, double *phi)
 {
     if (context->partition_id == 0)
     {
-        double phase = randu2(context->rng, 0.0, 2.0 * M_PI);
-        PetscScalar phi_real = cos(phase);
-        PetscScalar phi_imag = sin(phase);
-        *phi = phi_real + I * phi_imag;
+        *phi = randu2(context->rng, 0.0, 2.0 * M_PI);
     }
     // broadcast phi to all processes
-    PetscCall(MPI_Bcast(phi, 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    return PETSC_SUCCESS;
+}
+
+PetscErrorCode get_random_phi_v2(Simulation_context *context, double *phi)
+{
+    if (context->partition_id == 0)
+    {
+        *phi += 0.1;
+    }
+    // broadcast phi to all processes
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
 
     return PETSC_SUCCESS;
 }
 
-// Full Adam optimization process
-PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phase)
+PetscErrorCode get_random_phi_v3(Simulation_context *context, double *phi)
+{
+    if (context->partition_id == 0)
+    {
+        *phi += 0.1 + M_PI / 2.0;
+    }
+    // broadcast phi to all processes
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+
+    return PETSC_SUCCESS;
+}
+
+// Full Adam optimization process with fixed phi
+PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phi)
 {
     printf_master("Start optimizing the coupling strength using Adam optimizer with ");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
-
-    PetscScalar phi = cos(phase) + I * sin(phase);
 
     double norm2_grad;
     double fidelity;
@@ -423,12 +441,12 @@ PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *conte
 }
 
 // Full Adam optimization process with changing phi
-PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2)
+PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, int type)
 {
     printf_master("Start optimizing the coupling strength using Adam optimizer with ");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
-    PetscScalar phi = 1.0;
+    double phi = 0.0;
     double norm2_grad;
     double fidelity;
     double infidelity;
@@ -438,7 +456,13 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
     memset(m, 0, context->cnt_bond * sizeof(double));
     memset(v, 0, context->cnt_bond * sizeof(double));
 
-    int phi_change_cooldown = 0; // Prevent too frequent phi changes
+    // Buffer to store the last 10 infidelities
+    const int buffer_size = 10;
+    double *infidelity_buffer = (double *)malloc(buffer_size * sizeof(double));
+    memset(infidelity_buffer, 0, buffer_size * sizeof(double));
+    int buffer_idx = 0;
+    int phi_change_cooldown = 0;
+    int adam_iter = 0;
 
     for (int iter = 0; iter < max_iterations; iter++)
     {
@@ -447,6 +471,10 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         infidelity = 1.0 - fidelity;
+
+        // Store current infidelity in circular buffer
+        infidelity_buffer[buffer_idx] = infidelity;
+        buffer_idx = (buffer_idx + 1) % buffer_size;
 
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity);
@@ -457,24 +485,49 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
             break;
         }
 
-        // Check if we should change phi
-        if (phi_change_cooldown >= 10 && norm2_grad < 1e-3 && infidelity > 0.1)
+        // Calculate average change rate
+        if (phi_change_cooldown > 20)
         {
-            printf_master("Gradient too small (%.2e), generating new phi\n", norm2_grad);
-            PetscCall(get_random_phi(context, &phi));
-            phi_change_cooldown = 0;
-            continue;
+            double avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
+            avg_change_rate /= infidelity;
+
+            if (fabs(avg_change_rate) < 1e-6 && infidelity > 0.01)
+            {
+                switch (type)
+                {
+                case 1:
+                    PetscCall(get_random_phi(context, &phi));
+                    break;
+                case 2:
+                    PetscCall(get_random_phi_v2(context, &phi));
+                    break;
+                case 3:
+                    PetscCall(get_random_phi_v3(context, &phi));
+                    break;
+                default:
+                    PetscCall(get_random_phi(context, &phi));
+                    break;
+                }
+                printf_master("Average change rate too small (%.2e), generating new phi (%.6f)\n", avg_change_rate, phi);
+                phi_change_cooldown = 0;
+                buffer_idx = 0;
+                memset(m, 0, context->cnt_bond * sizeof(double));
+                memset(v, 0, context->cnt_bond * sizeof(double));
+                adam_iter = 0;
+                continue;
+            }
         }
         phi_change_cooldown++;
-        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, iter % 100 + 1));
+        PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iter % 100 + 1));
+        adam_iter++;
     }
+
     free(grad);
     free(m);
     free(v);
+    free(infidelity_buffer);
     return PETSC_SUCCESS;
 }
-
-
 
 // Random sampling of coupling strength
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type)
@@ -502,7 +555,7 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
 }
 
 // Full Adam optimization process with parallel instances
-PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context_list, int cnt_parallel, PetscScalar *phi_list, int max_iterations, double learning_rate, double beta1, double beta2)
+PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context_list, int cnt_parallel, double *phi_list, int max_iterations, double learning_rate, double beta1, double beta2)
 {
     printf_master("Start optimizing the coupling strength using parallel Adam optimizer with\n");
     printf_master("parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
@@ -534,11 +587,10 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     if (context->partition_id == 0) {
         printf_master("Initialize phi_list:\n");
         for (int p = 0; p < cnt_parallel; p++) {
-            double phase = randu2(context_list->rng, 0.0, 2.0 * M_PI);
-            phi_list[p] = cos(phase) + I * sin(phase);
+            phi_list[p] = randu2(context_list->rng, 0.0, 2.0 * M_PI);
         }
     }
-    PetscCall(MPI_Bcast(phi_list, cnt_parallel * 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(phi_list, cnt_parallel, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
 
     int phi_change_cooldown = 0;
 
@@ -589,7 +641,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                         double phase = randu2(context_list->rng, 0.0, 2.0 * M_PI);
                         phi_list[j] = cos(phase) + I * sin(phase);
                     }
-                    PetscCall(MPI_Bcast(&phi_list[j], 2, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+                    PetscCall(MPI_Bcast(&phi_list[j], 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
                 }
             }
         }

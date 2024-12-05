@@ -26,11 +26,10 @@ int main(int argc, char *argv[])
     }
 
     int cnt_parallel = 5;
-    PetscScalar *phi_list = (PetscScalar *)malloc(cnt_parallel * sizeof(PetscScalar));
+    double *phi_list = (double *)malloc(cnt_parallel * sizeof(double));
     for (int i = 0; i < cnt_parallel; i++)
     {
-        double phi = 2.0 * M_PI * i / cnt_parallel;
-        phi_list[i] = cos(phi) + I * sin(phi);
+        phi_list[i] = 2.0 * M_PI * i / cnt_parallel;
     }
 
     Simulation_context *context_list = (Simulation_context *)malloc(cnt_parallel * sizeof(Simulation_context));

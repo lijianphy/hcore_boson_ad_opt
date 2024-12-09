@@ -529,6 +529,59 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
     return PETSC_SUCCESS;
 }
 
+// sort the index list based on infidelities
+void sort_index_by_fidelity(const double *fidelities, int *index_list, int cnt_context)
+{
+    for (int i = 0; i < cnt_context; i++)
+    {
+        index_list[i] = i;
+    }
+    // do the sort using insertion sort
+    for (int i = 1; i < cnt_context; i++) {
+        int index = index_list[i];
+        double fidelity = fidelities[index];
+        int j = i - 1;
+        while (j >= 0 && fidelities[index_list[j]] < fidelity) {
+            index_list[j + 1] = index_list[j];
+            j--;
+        }
+        index_list[j + 1] = index;
+    }
+}
+
+// Set the coupling strength to the average of the best 1/3 of the contexts
+static PetscErrorCode set_random_coupling_strength_merged(Simulation_context *context, Simulation_context *context_list, int cnt_context, double* fidelities, double a, double b)
+{
+    int *index_list = (int *)malloc(cnt_context * sizeof(int));
+    // sort the index list based on infidelities
+    sort_index_by_fidelity(fidelities, index_list, cnt_context);
+
+    int cnt_avg = cnt_context / 3;
+
+    // Only master process generates random values
+    if (context->partition_id == 0)
+    {
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            if (context->isfixed[i])
+            {
+                continue;
+            }
+            double sum = 0.0;
+            for (int j = 0; j < cnt_avg; j++)
+            {
+                sum += context_list[index_list[j]].coupling_strength[i];
+            }
+            context->coupling_strength[i] = sum / cnt_avg + randu2(context->rng, a, b);
+        }
+    }
+
+    // Set Hamiltonian with the new coupling strengths
+    PetscCall(set_coupling_strength(context, context->coupling_strength));
+    free(index_list);
+    return PETSC_SUCCESS;
+}
+
 // Random sampling of coupling strength
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type)
 {
@@ -606,6 +659,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     double *infidelity_buffer = NULL;
     double infidelity = 0.0;
     double max_fidelity = 0.0;
+    int max_fidelity_idx = 0;
 
     for (int iter = 0; iter < max_iterations; iter++) {
         // Run one iteration for each parallel instance
@@ -641,9 +695,11 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
 
         // calculate max fidelity
         max_fidelity = 0.0;
+        max_fidelity_idx = 0;
         for (int p = 0; p < cnt_parallel; p++) {
             if (fidelities[p] > max_fidelity) {
                 max_fidelity = fidelities[p];
+                max_fidelity_idx = p;
             }
         }
         // printf_master("Min infidelity: %.6e\n", 1.0 - max_fidelity);
@@ -656,11 +712,13 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
             if (change_cooldowns[p] > 20) {
                 double avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
                 avg_change_rate /= infidelity;
-                if (fabs(avg_change_rate) < 2e-4 && infidelity > 0.01 && fidelities[p] < max_fidelity) {
+                if (fabs(avg_change_rate) < 1e-4 && infidelity > 0.01 && p != max_fidelity_idx) {
                     is_coupling_reset[p] = 1;
                     // reset the coupling strength to random values
                     printf_master("[Instance %d] Average change rate too small (%.2e), generating new coupling strength\n", p, avg_change_rate);
-                    PetscCall(set_random_coupling_strength(context_list + p, 0.05, 5.0));
+                    // PetscCall(set_random_coupling_strength(context_list + p, 0.05, 5.0));
+                    double scale = 1.0;
+                    PetscCall(set_random_coupling_strength_merged(context_list + p, context_list, cnt_parallel, fidelities, -scale, scale));
                 } else {
                     is_coupling_reset[p] = 0;
                 }

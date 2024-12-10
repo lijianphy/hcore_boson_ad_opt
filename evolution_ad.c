@@ -39,12 +39,12 @@ PetscErrorCode forward_evolution(Simulation_context *context)
     Vec *forward_path = context->forward_path;
 
     FN f;
-    PetscCall(FNCreate(PETSC_COMM_WORLD, &f));
+    PetscCall(FNCreate(context->comm, &f));
     PetscCall(FNSetType(f, FNEXP));
     PetscCall(FNSetScale(f, -I * delta_t, 1.0));
 
     MFN mfn;
-    PetscCall(MFNCreate(PETSC_COMM_WORLD, &mfn));
+    PetscCall(MFNCreate(context->comm, &mfn));
     PetscCall(MFNSetFN(mfn, f));
     PetscCall(MFNSetType(mfn, MFNEXPOKIT));
     PetscCall(MFNSetOperator(mfn, ham));
@@ -70,12 +70,12 @@ PetscErrorCode backward_evolution(Simulation_context *context)
     Vec *backward_path = context->backward_path;
 
     FN f;
-    PetscCall(FNCreate(PETSC_COMM_WORLD, &f));
+    PetscCall(FNCreate(context->comm, &f));
     PetscCall(FNSetType(f, FNEXP));
     PetscCall(FNSetScale(f, I * delta_t, 1.0));
 
     MFN mfn;
-    PetscCall(MFNCreate(PETSC_COMM_WORLD, &mfn));
+    PetscCall(MFNCreate(context->comm, &mfn));
     PetscCall(MFNSetFN(mfn, f));
     PetscCall(MFNSetType(mfn, MFNEXPOKIT));
     PetscCall(MFNSetOperator(mfn, ham));
@@ -93,7 +93,8 @@ PetscErrorCode backward_evolution(Simulation_context *context)
     return PETSC_SUCCESS;
 }
 
-// Run forward and backward evolution
+// Run forward and backward evolution, version 1
+// loss = |forward_path[time_steps] - target_vec|^2
 PetscErrorCode run_evolution_v1(Simulation_context *context)
 {
     PetscCall(forward_evolution(context));
@@ -103,7 +104,8 @@ PetscErrorCode run_evolution_v1(Simulation_context *context)
     return PETSC_SUCCESS;
 }
 
-// Run forward and backward evolution
+// Run forward and backward evolution, version 2
+// loss = 1.0 - |<forward_path[time_steps] | target_vec>|^2
 PetscErrorCode run_evolution_v2(Simulation_context *context)
 {
     PetscCall(forward_evolution(context));
@@ -115,7 +117,8 @@ PetscErrorCode run_evolution_v2(Simulation_context *context)
     return PETSC_SUCCESS;
 }
 
-// Run forward and backward evolution
+// Run forward and backward evolution, version 3
+// loss = |forward_path[time_steps] - |target_vec><target_vec | forward_path[time_steps]> |^2
 PetscErrorCode run_evolution_v3(Simulation_context *context)
 {
     PetscCall(forward_evolution(context));
@@ -135,8 +138,9 @@ PetscErrorCode run_evolution_v3(Simulation_context *context)
     return PETSC_SUCCESS;
 }
 
-// Run forward and backward evolution
-PetscErrorCode run_evolution_with_phi(Simulation_context *context, double phi)
+// Run forward and backward evolution with a phase factor
+// loss = |forward_path[time_steps] - phase_factor * target_vec|^2
+PetscErrorCode run_evolution_with_phase(Simulation_context *context, double phi)
 {
     PetscCall(forward_evolution(context));
     PetscScalar phase_factor = cos(phi) + I * sin(phi);
@@ -284,24 +288,23 @@ static PetscErrorCode write_iteration_data(Simulation_context *context, int iter
 }
 
 // Print iteration data during the optimization process
-static void print_iteration_data(int iter, double norm2_grad, double fidelity)
+static void print_iteration_data(int iter, double norm2_grad, double fidelity, int stream_id, int partition_id)
 {
-    time_t now;
-    char timestamp[20];
-    time(&now);
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-
-    printf_master("[%s] Iteration %4d: infidelity: %.6e, norm2_grad: %.6e\n", timestamp, iter, 1.0 - fidelity, norm2_grad);
+    if (partition_id != 0)
+    {
+        return;
+    }
+    printf("[%2d] Iteration %4d: infidelity: %.6e, norm2_grad: %.6e\n", stream_id, iter, 1.0 - fidelity, norm2_grad);
 }
 
 // Full gradient descent optimization process
 PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate, AD_TYPE ad_type)
 {
-    printf_master("Start optimizing the coupling strength using gradient descent with ");
+    printf_master("Start optimizing the coupling strength using gradient descent with\n");
     printf_master("max_iterations: %d, learning_rate: %.6e\n", max_iterations, learning_rate);
 
     PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
-    PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
+    PetscCheck(run_evolution, context->comm, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double norm2_grad;
     double fidelity;
@@ -314,10 +317,10 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_grad, fidelity);
+        print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
         if ((1.0 - fidelity) < 1e-5)
         {
-            printf_master("Converged\n");
+            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
             break;
         }
         PetscCall(gradient_descent(context, grad, learning_rate));
@@ -329,11 +332,11 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
 // Full Adam optimization process
 PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, AD_TYPE ad_type)
 {
-    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("Start optimizing the coupling strength using Adam optimizer with\n");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
     PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
-    PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
+    PetscCheck(run_evolution, context->comm, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double norm2_grad;
     double fidelity;
@@ -351,11 +354,11 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_grad, fidelity);
+        print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if ((1.0 - fidelity) < 1e-5)
         {
-            printf_master("Converged\n");
+            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
             break;
         }
 
@@ -367,17 +370,19 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
     return PETSC_SUCCESS;
 }
 
-PetscErrorCode get_random_phi(Simulation_context *context, double *phi)
+// get random phase from [0, 2*pi)
+static PetscErrorCode get_random_phi(Simulation_context *context, double *phi)
 {
     if (context->partition_id == 0)
     {
         *phi = randu2(context->rng, 0.0, 2.0 * M_PI);
     }
     // broadcast phi to all processes
-    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, context->comm));
     return PETSC_SUCCESS;
 }
 
+// get phi by adding a fixed value (0.1) to the previous phi
 PetscErrorCode get_random_phi_v2(Simulation_context *context, double *phi)
 {
     if (context->partition_id == 0)
@@ -385,11 +390,12 @@ PetscErrorCode get_random_phi_v2(Simulation_context *context, double *phi)
         *phi += 0.1;
     }
     // broadcast phi to all processes
-    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, context->comm));
 
     return PETSC_SUCCESS;
 }
 
+// get phi by adding a fixed value (0.1 + pi/2) to the previous phi
 PetscErrorCode get_random_phi_v3(Simulation_context *context, double *phi)
 {
     if (context->partition_id == 0)
@@ -397,15 +403,15 @@ PetscErrorCode get_random_phi_v3(Simulation_context *context, double *phi)
         *phi += 0.1 + M_PI / 2.0;
     }
     // broadcast phi to all processes
-    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(phi, 1, MPI_DOUBLE, 0, context->comm));
 
     return PETSC_SUCCESS;
 }
 
-// Full Adam optimization process with fixed phi
-PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phi)
+// Full Adam optimization process with fixed phase factor
+PetscErrorCode optimize_coupling_strength_adam_fixed_phase(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phi)
 {
-    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("Start optimizing the coupling strength using Adam optimizer with\n");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
     double norm2_grad;
@@ -418,17 +424,17 @@ PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *conte
 
     for (int iter = 0; iter < max_iterations; iter++)
     {
-        PetscCall(run_evolution_with_phi(context, phi));
+        PetscCall(run_evolution_with_phase(context, phi));
         PetscCall(calculate_gradient(context, grad));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_grad, fidelity);
+        print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if ((1.0 - fidelity) < 1e-5)
         {
-            printf_master("Converged\n");
+            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
             break;
         }
 
@@ -440,10 +446,10 @@ PetscErrorCode optimize_coupling_strength_adam_phi_fix(Simulation_context *conte
     return PETSC_SUCCESS;
 }
 
-// Full Adam optimization process with changing phi
-PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, int type)
+// Full Adam optimization process with changing phase factor
+PetscErrorCode optimize_coupling_strength_adam_changing_phase(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, int type)
 {
-    printf_master("Start optimizing the coupling strength using Adam optimizer with ");
+    printf_master("Start optimizing the coupling strength using Adam optimizer with\n");
     printf_master("max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n", max_iterations, learning_rate, beta1, beta2);
 
     double phi = 0.0;
@@ -466,7 +472,7 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
 
     for (int iter = 0; iter < max_iterations; iter++)
     {
-        PetscCall(run_evolution_with_phi(context, phi));
+        PetscCall(run_evolution_with_phase(context, phi));
         PetscCall(calculate_gradient(context, grad));
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
@@ -477,11 +483,11 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
         buffer_idx = (buffer_idx + 1) % buffer_size;
 
         PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
-        print_iteration_data(iter, norm2_grad, fidelity);
+        print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if (infidelity < 1e-5)
         {
-            printf_master("Converged\n");
+            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
             break;
         }
 
@@ -508,7 +514,7 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
                     PetscCall(get_random_phi(context, &phi));
                     break;
                 }
-                printf_master("Average change rate too small (%.2e), generating new phi (%.6f)\n", avg_change_rate, phi);
+                PetscPrintf(context->comm, "Stream %d: Average change rate too small (%.2e), generating new phi (%.6f)\n", context->stream_id, avg_change_rate, phi);
                 change_cooldown = 0;
                 buffer_idx = 0;
                 memset(m, 0, context->cnt_bond * sizeof(double));
@@ -529,19 +535,21 @@ PetscErrorCode optimize_coupling_strength_adam_with_phi(Simulation_context *cont
     return PETSC_SUCCESS;
 }
 
-// sort the index list based on infidelities
-void sort_index_by_fidelity(const double *fidelities, int *index_list, int cnt_context)
+// sort the index list based on fidelities in descending order
+void sort_index_by_fidelity(const double *fidelities, int *index_list, int cnt_stream)
 {
-    for (int i = 0; i < cnt_context; i++)
+    for (int i = 0; i < cnt_stream; i++)
     {
         index_list[i] = i;
     }
     // do the sort using insertion sort
-    for (int i = 1; i < cnt_context; i++) {
+    for (int i = 1; i < cnt_stream; i++)
+    {
         int index = index_list[i];
         double fidelity = fidelities[index];
         int j = i - 1;
-        while (j >= 0 && fidelities[index_list[j]] < fidelity) {
+        while (j >= 0 && fidelities[index_list[j]] < fidelity)
+        {
             index_list[j + 1] = index_list[j];
             j--;
         }
@@ -549,44 +557,11 @@ void sort_index_by_fidelity(const double *fidelities, int *index_list, int cnt_c
     }
 }
 
-// Set the coupling strength to the average of the best 1/3 of the contexts
-static PetscErrorCode set_random_coupling_strength_merged(Simulation_context *context, Simulation_context *context_list, int cnt_context, double* fidelities, double a, double b)
-{
-    int *index_list = (int *)malloc(cnt_context * sizeof(int));
-    // sort the index list based on infidelities
-    sort_index_by_fidelity(fidelities, index_list, cnt_context);
-
-    int cnt_avg = cnt_context / 3;
-
-    // Only master process generates random values
-    if (context->partition_id == 0)
-    {
-        for (int i = 0; i < context->cnt_bond; i++)
-        {
-            if (context->isfixed[i])
-            {
-                continue;
-            }
-            double sum = 0.0;
-            for (int j = 0; j < cnt_avg; j++)
-            {
-                sum += context_list[index_list[j]].coupling_strength[i];
-            }
-            context->coupling_strength[i] = sum / cnt_avg + randu2(context->rng, a, b);
-        }
-    }
-
-    // Set Hamiltonian with the new coupling strengths
-    PetscCall(set_coupling_strength(context, context->coupling_strength));
-    free(index_list);
-    return PETSC_SUCCESS;
-}
-
 // Random sampling of coupling strength
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type)
 {
     PetscErrorCode (*run_evolution)(Simulation_context *) = get_evolution_function(ad_type);
-    PetscCheck(run_evolution, PETSC_COMM_WORLD, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
+    PetscCheck(run_evolution, context->comm, PETSC_ERR_ARG_OUTOFRANGE, "Invalid AD type");
 
     double *grad = (double *)malloc(context->cnt_bond * sizeof(double));
     double norm2_grad;
@@ -600,7 +575,7 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         PetscCall(write_iteration_data(context, i, grad, norm2_grad, fidelity));
-        print_iteration_data(i, norm2_grad, fidelity);
+        print_iteration_data(i, norm2_grad, fidelity, context->stream_id, context->partition_id);
     }
 
     free(grad);
@@ -608,156 +583,192 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
 }
 
 // Full Adam optimization process with parallel instances
-PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context_list, int cnt_parallel, int max_iterations, double learning_rate, double beta1, double beta2)
+PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context, double learning_rate, double beta1, double beta2)
 {
+    int cnt_parallel = context->n_streams;
+    int max_iterations = context->total_iteration;
     printf_master("Start optimizing the coupling strength using parallel Adam optimizer with\n");
     printf_master("parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
                   cnt_parallel, max_iterations, learning_rate, beta1, beta2);
-    
-    for (int p = 0; p < cnt_parallel; p++)
+
+    PetscCall(set_random_coupling_strength(context, 0.05, 5.0));
+
+    int total_rank_id;
+    MPI_Comm_rank(PETSC_COMM_WORLD, &total_rank_id);
+
+    int cnt_bond = context->cnt_bond;
+    double norm2_grad;
+    double fidelity;
+    double infidelity;
+
+    // Allocate memory for optimization variables
+    double *grad = (double *)malloc(cnt_bond * sizeof(double));
+    double *m = (double *)malloc(cnt_bond * sizeof(double));
+    double *v = (double *)malloc(cnt_bond * sizeof(double));
+    memset(m, 0, cnt_bond * sizeof(double));
+    memset(v, 0, cnt_bond * sizeof(double));
+
+    // Buffer to store the last 10 infidelities
+    const int buffer_size = 10;
+    double *infidelity_buffer = (double *)malloc(buffer_size * sizeof(double));
+    memset(infidelity_buffer, 0, buffer_size * sizeof(double));
+    int buffer_idx = 0;
+    int change_cooldown = 0;
+    int adam_iter = 0;
+    int converged = 0;
+    int converged_any = 0;
+    double max_fidelity = 0.0;
+
+    double *fidelities = NULL;
+    int *index_list = NULL;
+    double *coupling_strength_list = NULL;
+    if (context->root_id == total_rank_id)
     {
-        for (int i = 0; i < p; i++) {
-            jump_forward((context_list + p)->rng);
-        }
-        PetscCall(set_random_coupling_strength(context_list + p, 0.05, 5.0));
+        fidelities = (double *)malloc(cnt_parallel * sizeof(double));
+        index_list = (int *)malloc(cnt_parallel * sizeof(int));
+        coupling_strength_list = (double *)malloc(cnt_parallel * cnt_bond * sizeof(double));
     }
 
-    Simulation_context *context = context_list + 0;
-    int cnt_bond = context->cnt_bond;
-    
-    // Allocate memory for optimization variables
-    double *grad_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
-    double *m_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
-    double *v_list = (double *)malloc(cnt_bond * sizeof(double) * cnt_parallel);
-    memset(m_list, 0, cnt_bond * sizeof(double) * cnt_parallel);
-    memset(v_list, 0, cnt_bond * sizeof(double) * cnt_parallel);
+    int is_coupling_reset = 0;
+    int is_coupling_reset_any = 0;
 
-    // Track current and previous fidelities
-    double *fidelities = (double *)malloc(cnt_parallel * sizeof(double));
-    double *norm2_grads = (double *)malloc(cnt_parallel * sizeof(double));
-    
-    memset(fidelities, 0, cnt_parallel * sizeof(double));
-    
-    PetscBool converged = PETSC_FALSE;
+    double *coupling_strength_reset = (double *)malloc(cnt_bond * sizeof(double));
 
-    double *grad = NULL;
-    double *m = NULL;
-    double *v = NULL;
+    for (int iter = 0; iter < max_iterations; iter++)
+    {
+        // Run one iteration for each parallel stream
+        PetscCall(run_evolution_v2(context));
+        PetscCall(calculate_gradient(context, grad));
+        norm2_grad = cblas_dnrm2(cnt_bond, grad, 1);
+        PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
+        infidelity = 1.0 - fidelity;
 
-    const int buffer_size = 10;
-    double *infidelity_buffers = (double *)malloc(buffer_size * sizeof(double) * cnt_parallel);
-    int *buffer_idxs = (int *)malloc(cnt_parallel * sizeof(int));
-    int *change_cooldowns = (int *)malloc(cnt_parallel * sizeof(int));
-    int *adam_iters = (int *)malloc(cnt_parallel * sizeof(int));
-    int *is_coupling_reset = (int *)malloc(cnt_parallel * sizeof(int));
-    memset(infidelity_buffers, 0, buffer_size * sizeof(double) * cnt_parallel);
-    memset(buffer_idxs, 0, cnt_parallel * sizeof(int));
-    memset(change_cooldowns, 0, cnt_parallel * sizeof(int));
-    memset(adam_iters, 0, cnt_parallel * sizeof(int));
-    memset(is_coupling_reset, 0, cnt_parallel * sizeof(int));
+        // Store current infidelity in circular buffer
+        infidelity_buffer[buffer_idx] = infidelity;
+        buffer_idx = (buffer_idx + 1) % buffer_size;
 
-    double *infidelity_buffer = NULL;
-    double infidelity = 0.0;
-    double max_fidelity = 0.0;
-    int max_fidelity_idx = 0;
+        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        // print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
-    for (int iter = 0; iter < max_iterations; iter++) {
-        // Run one iteration for each parallel instance
-        for (int p = 0; p < cnt_parallel; p++) {
-            context = context_list + p;
-            grad = grad_list + p * cnt_bond;
-            m = m_list + p * cnt_bond;
-            v = v_list + p * cnt_bond;
-            infidelity_buffer = infidelity_buffers + p * buffer_size;
-            
-            PetscCall(run_evolution_v2(context));
-            PetscCall(calculate_gradient(context, grad));
-            norm2_grads[p] = cblas_dnrm2(cnt_bond, grad, 1);
-            PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelities[p]));
-            infidelity = 1.0 - fidelities[p];
-
-            // Store current infidelity in circular buffer
-            infidelity_buffer[buffer_idxs[p]] = infidelity;
-            buffer_idxs[p] = (buffer_idxs[p] + 1) % buffer_size;
-
-            PetscCall(write_iteration_data(context_list + 0, iter * cnt_parallel + p, grad, norm2_grads[p], fidelities[p]));
-            printf_master("[Instance %d] ", p);
-            print_iteration_data(iter, norm2_grads[p], fidelities[p]);
-
-            if ((1.0 - fidelities[p]) < 1e-5) {
-                printf_master("Converged in instance %d\n", p);
-                converged = PETSC_TRUE;
-                break;
-            }
+        if ((1.0 - fidelity) < 1e-5)
+        {
+            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
+            converged = 1;
         }
 
-        if (converged) break;
-
-        // calculate max fidelity
-        max_fidelity = 0.0;
-        max_fidelity_idx = 0;
-        for (int p = 0; p < cnt_parallel; p++) {
-            if (fidelities[p] > max_fidelity) {
-                max_fidelity = fidelities[p];
-                max_fidelity_idx = p;
-            }
+        // Check if any stream has converged
+        PetscCall(MPI_Allreduce(&converged, &converged_any, 1, MPI_INT, MPI_LOR, PETSC_COMM_WORLD));
+        if (converged_any)
+        {
+            break;
         }
-        // printf_master("Min infidelity: %.6e\n", 1.0 - max_fidelity);
 
-        // calculate average change rate for each parallel instance
-        for (int p = 0; p < cnt_parallel; p++) {
-            infidelity_buffer = infidelity_buffers + p * buffer_size;
-            int buffer_idx = buffer_idxs[p];
-            infidelity = 1.0 - fidelities[p];
-            if (change_cooldowns[p] > 20) {
-                double avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
-                avg_change_rate /= infidelity;
-                if (fabs(avg_change_rate) < 1e-4 && infidelity > 0.01 && p != max_fidelity_idx) {
-                    is_coupling_reset[p] = 1;
-                    // reset the coupling strength to random values
-                    printf_master("[Instance %d] Average change rate too small (%.2e), generating new coupling strength\n", p, avg_change_rate);
-                    // PetscCall(set_random_coupling_strength(context_list + p, 0.05, 5.0));
-                    double scale = 1.0;
-                    PetscCall(set_random_coupling_strength_merged(context_list + p, context_list, cnt_parallel, fidelities, -scale, scale));
-                } else {
-                    is_coupling_reset[p] = 0;
+        // collect fidelities from all streams to master
+        if (context->is_master)
+        {
+            PetscCall(MPI_Gather(&fidelity, 1, MPI_DOUBLE, fidelities, 1, MPI_DOUBLE, 0, context->master_comm));
+            if (total_rank_id == context->root_id)
+            {
+                // get max fidelity
+                max_fidelity = 0.0;
+                for (int p = 0; p < cnt_parallel; p++)
+                {
+                    if (fidelities[p] > max_fidelity)
+                    {
+                        max_fidelity = fidelities[p];
+                    }
                 }
-            } else {
-                is_coupling_reset[p] = 0;
+                printf("Iteration %5d, min infidelity: %.6e\n", iter, 1.0 - max_fidelity);
+            }
+        }
+
+        // broadcast the max fidelity to all processes
+        PetscCall(MPI_Bcast(&max_fidelity, 1, MPI_DOUBLE, context->root_id, PETSC_COMM_WORLD));
+
+        infidelity = 1.0 - fidelity;
+        if (change_cooldown > 20)
+        {
+            double avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
+            avg_change_rate /= infidelity;
+            if (fabs(avg_change_rate) < 1e-4 && infidelity > 0.01 && fidelity < max_fidelity)
+            {
+                is_coupling_reset = 1;
+                PetscPrintf(context->comm, "Stream %d: Average change rate too small (%.2e), generating new coupling strength\n", context->stream_id, avg_change_rate);
+            }
+            else
+            {
+                is_coupling_reset = 0;
+            }
+        }
+        else
+        {
+            is_coupling_reset = 0;
+        }
+
+        // check if any stream has to reset the coupling strength
+        if (context->is_master)
+        {
+            PetscCall(MPI_Allreduce(&is_coupling_reset, &is_coupling_reset_any, 1, MPI_INT, MPI_LOR, context->master_comm));
+            if (is_coupling_reset_any)
+            {
+                // collect coupling strength from all streams to master
+                PetscCall(MPI_Gather(context->coupling_strength, cnt_bond, MPI_DOUBLE, coupling_strength_list, cnt_bond, MPI_DOUBLE, 0, context->master_comm));
+                if (total_rank_id == context->root_id)
+                {
+                    sort_index_by_fidelity(fidelities, index_list, cnt_parallel);
+
+                    // set the coupling strength to the average of the best 1/4 of the contexts
+                    int cnt_avg = cnt_parallel / 4 + 1;
+                    double scale = 1.0;
+                    for (int i = 0; i < cnt_bond; i++)
+                    {
+                        if (context->isfixed[i])
+                        {
+                            coupling_strength_reset[i] = context->coupling_strength[i];
+                        }
+                        else
+                        {
+                            double sum = 0.0;
+                            for (int j = 0; j < cnt_avg; j++)
+                            {
+                                sum += coupling_strength_list[index_list[j] * cnt_bond + i];
+                            }
+                            coupling_strength_reset[i] = sum / cnt_avg + randu2(context->rng, -scale, scale);
+                        }
+                    }
+                }
+                // broadcast the new coupling strength to all processes
+                PetscCall(MPI_Bcast(coupling_strength_reset, cnt_bond, MPI_DOUBLE, 0, context->master_comm));
             }
         }
 
         // Apply optimizer updates
-        for (int p = 0; p < cnt_parallel; p++) {
-            context = context_list + p;
-            grad = grad_list + p * cnt_bond;
-            m = m_list + p * cnt_bond;
-            v = v_list + p * cnt_bond;
-            if (is_coupling_reset[p]) {
-                change_cooldowns[p] = 0;
-                buffer_idxs[p] = 0;
-                memset(m, 0, cnt_bond * sizeof(double));
-                memset(v, 0, cnt_bond * sizeof(double));
-                adam_iters[p] = 0;
-            } else {
-                PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iters[p] % 100 + 1));
-                adam_iters[p]++;
-                change_cooldowns[p]++;
-            }
+        if (is_coupling_reset)
+        {
+            change_cooldown = 0;
+            buffer_idx = 0;
+            memset(m, 0, cnt_bond * sizeof(double));
+            memset(v, 0, cnt_bond * sizeof(double));
+            adam_iter = 0;
+            PetscCall(set_coupling_strength(context, coupling_strength_reset));
+        }
+        else
+        {
+            PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iter % 100 + 1));
+            adam_iter++;
+            change_cooldown++;
         }
     }
 
     // Cleanup
-    free(grad_list);
-    free(m_list);
-    free(v_list);
+    free(grad);
+    free(m);
+    free(v);
+    free(infidelity_buffer);
     free(fidelities);
-    free(norm2_grads);
-    free(adam_iters);
-    free(infidelity_buffers);
-    free(buffer_idxs);
-    free(change_cooldowns);
-    free(is_coupling_reset);
+    free(index_list);
+    free(coupling_strength_list);
+    free(coupling_strength_reset);
 
     return PETSC_SUCCESS;
 }

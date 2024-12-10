@@ -67,6 +67,11 @@ typedef struct Simulation_context
     int n_partition;  // number of partitions
     int partition_id; // partition id of current process
 
+    int is_master;        // whether the process is the master process
+    MPI_Comm master_comm; // MPI communicator for master process
+    int master_rank;      // rank of the master process
+    int root_id;          // root process id
+
     // Hamiltonian
     size_t h_dimension;           // dimension of the Hilbert space
     Mat hamiltonian;              // Hamiltonian matrix, in sparse form

@@ -31,21 +31,23 @@ int main(int argc, char *argv[])
 
     // run the optimization using Adam optimizer
     // Generally, Adam optimizer converges faster than gradient descent
-    // PetscCall(optimize_coupling_strength_adam(context, 10000, 0.01, 0.9, 0.999, AD_V2));
-    PetscCall(optimize_coupling_strength_adam_with_phi(context, 100000, 0.01, 0.9, 0.999, 1));
-    // PetscCall(optimize_coupling_strength_adam_change_loss(context, 20000, 0.01, 0.9, 0.999));
+    // PetscCall(optimize_coupling_strength_adam(context, context->total_iteration, 0.01, 0.9, 0.999, AD_V2));
+    PetscCall(optimize_coupling_strength_adam_changing_phase(context, context->total_iteration, 0.01, 0.9, 0.999, 1));
 
     // print the optimized coupling strength
-    printf_master("Optimized coupling strength:\n");
-    for (int i = 0; i < context->cnt_bond; i++)
+    if (context->partition_id == 0)
     {
-        printf_master("%lf", context->coupling_strength[i]);
-        if (i < context->cnt_bond - 1)
+        printf("Optimized coupling strength of stream %d:\n", context->stream_id);
+        for (int i = 0; i < context->cnt_bond; i++)
         {
-            printf_master(", ");
+            printf("%lf", context->coupling_strength[i]);
+            if (i < context->cnt_bond - 1)
+            {
+                printf(", ");
+            }
         }
+        printf("\n");
     }
-    printf_master("\n");
 
     // Clean up
     printf_master("\nCleaning up\n");

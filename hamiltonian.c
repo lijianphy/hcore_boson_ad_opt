@@ -30,42 +30,46 @@ static char *generate_output_file_name(const char *file_name)
     // Extract base name from path
     const char *base_name = strrchr(file_name, '/');
     base_name = base_name ? base_name + 1 : file_name;
-    
+
     // Find last dot position and calculate base length
     const char *last_dot = strrchr(base_name, '.');
     size_t base_len = last_dot ? (size_t)(last_dot - base_name) : strlen(base_name);
-    
+
     // Get current time
     time_t t = time(NULL);
     struct tm tm = *localtime(&t);
-    
+
     // Generate random hex string
-    char random_str[9];  // 8 chars + null terminator
+    char random_str[9]; // 8 chars + null terminator
     unsigned int random_val;
     FILE *f = fopen("/dev/urandom", "rb");
-    if (f) {
+    if (f)
+    {
         size_t cnt_read = fread(&random_val, sizeof(random_val), 1, f);
         fclose(f);
-        if (cnt_read != 1) {
+        if (cnt_read != 1)
+        {
             random_val = (unsigned int)time(NULL) ^ (unsigned int)clock();
         }
-    } else {
+    }
+    else
+    {
         random_val = (unsigned int)time(NULL) ^ (unsigned int)clock();
     }
     snprintf(random_str, sizeof(random_str), "%08x", random_val);
-    
+
     // Generate output filename with timestamp and random string
     char *output_file = (char *)malloc(base_len + 48); // enough space for name + random + timestamp + .jsonl
-    
+
     // Copy base name (without extension) and add random string and timestamp
     memcpy(output_file, base_name, base_len);
     output_file[base_len] = '\0';
-    
+
     // output file name format: base_name_RANDOM_YYYYMMDD-HHMMSS.jsonl
     sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d_%s.jsonl",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
             tm.tm_hour, tm.tm_min, tm.tm_sec, random_str);
-    
+
     return output_file;
 }
 
@@ -113,7 +117,19 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     int color = rank_id / context->n_partition;
     PetscCall(MPI_Comm_split(PETSC_COMM_WORLD, color, rank_id, &context->comm));
     context->stream_id = color;
-    MPI_Comm_rank(context->comm, &context->partition_id);
+    PetscCall(MPI_Comm_rank(context->comm, &context->partition_id));
+
+    // differenciate the master process from the others
+    color = context->partition_id == 0 ? 0 : 1;
+    PetscCall(MPI_Comm_split(PETSC_COMM_WORLD, color, rank_id, &context->master_comm));
+    PetscCall(MPI_Comm_rank(context->master_comm, &context->master_rank));
+    context->is_master = context->partition_id == 0 ? 1 : 0;
+    printf("Rank %d: stream_id %d, partition_id %d, master_rank %d, is_master %d\n",
+           rank_id, context->stream_id, context->partition_id, context->master_rank, context->is_master);
+    
+    // broadcast root process id to all processes
+    int root_id = context->is_master && (context->master_rank == 0) ? rank_id : -1;
+    PetscCall(MPI_Allreduce(&root_id, &context->root_id, 1, MPI_INT, MPI_MAX, PETSC_COMM_WORLD));
 
     // open output file
     // the format of output is JSON lines (also called newline-delimited JSON), see: https://jsonlines.org/
@@ -175,7 +191,7 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
  * @param context Pointer to the simulation context
  * @param coupling_strength Array of new coupling strengths
  * @return PetscErrorCode
- * 
+ *
  * For consistency, the coupling_strength array should be the same across all partitions.
  * Thus only the master process sets the coupling strength, and then broadcasts it to all processes.
  */
@@ -200,7 +216,7 @@ PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupli
  * @param context Pointer to the simulation context
  * @param delta Array of delta coupling strengths
  * @return PetscErrorCode
- * 
+ *
  */
 PetscErrorCode update_coupling_strength(Simulation_context *context, double *delta)
 {
@@ -516,7 +532,7 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
 
     for (int j = 0; j < cnt_bond; j++)
     {
-        if (context->isfixed[j])  // only build single bond Hamiltonian for non-fixed bonds
+        if (context->isfixed[j]) // only build single bond Hamiltonian for non-fixed bonds
         {
             context->single_bond_hams[j] = NULL;
             continue;
@@ -546,7 +562,7 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
 
     for (int j = 0; j < cnt_bond; j++)
     {
-        if (!context->isfixed[j])  // only build single bond Hamiltonian for non-fixed bonds
+        if (!context->isfixed[j]) // only build single bond Hamiltonian for non-fixed bonds
         {
             PetscCall(MatAssemblyEnd(single_bond_hams[j], MAT_FINAL_ASSEMBLY));
         }

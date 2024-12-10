@@ -7,6 +7,7 @@
 
 #include <stddef.h>   // size_t
 #include <stdint.h>   // uint64_t
+#include <mpi.h>      // MPI_Comm
 #include <petscmat.h> // Mat, PetscErrorCode
 #include "bits.h"
 #include "bits128.h"
@@ -54,10 +55,15 @@ typedef struct Simulation_context
     State initial_state;       // initial state for the evolution
     State target_state;        // target state for the evolution
 
+    int total_iteration;       // total number of iterations
+
     // Fixed coupling configuration
     int *isfixed;              // whether the coupling strength is fixed
 
     // MPI context
+    int n_streams;    // number of streams
+    int stream_id;    // stream id of current process
+    MPI_Comm comm;    // MPI communicator
     int n_partition;  // number of partitions
     int partition_id; // partition id of current process
 
@@ -80,6 +86,7 @@ typedef struct Simulation_context
 
     // Random number generator
     rng_t* rng;
+    long rng_seed;
 } Simulation_context;
 
 // Core initialization and cleanup

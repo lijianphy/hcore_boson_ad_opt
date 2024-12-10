@@ -18,6 +18,10 @@
  */
 double eigen_values_dense(const Simulation_context *context, double *hamiltonian)
 {
+    if (context->partition_id != 0)
+    {
+        return 0.0;
+    }
     size_t h_dimension = context->h_dimension;
     double *eigen_values = (double *)malloc(h_dimension * sizeof(double));
     int info = LAPACKE_dsyev(LAPACK_ROW_MAJOR, 'N', 'U', h_dimension, hamiltonian, h_dimension, eigen_values);
@@ -52,8 +56,11 @@ PetscErrorCode largest_eigenvalue_sparse(Mat A, PetscReal *eigenvalue)
     PetscInt max_it;
     PetscReal error;
 
+    MPI_Comm comm;
+    PetscCall(PetscObjectGetComm((PetscObject)A, &comm));
+
     // Create the eigenvalue solver context
-    PetscCall(EPSCreate(PETSC_COMM_WORLD, &eps));
+    PetscCall(EPSCreate(comm, &eps));
 
     // Set operators. For a standard eigenvalue problem, only A is needed
     PetscCall(EPSSetOperators(eps, A, NULL));
@@ -77,7 +84,7 @@ PetscErrorCode largest_eigenvalue_sparse(Mat A, PetscReal *eigenvalue)
     PetscCall(EPSGetConverged(eps, &nconv));
     if (nconv < 1)
     {
-        PetscPrintf(PETSC_COMM_WORLD, "No eigenvalues converged!\n");
+        PetscPrintf(comm, "No eigenvalues converged!\n");
         return 1;
     }
 
@@ -93,9 +100,9 @@ PetscErrorCode largest_eigenvalue_sparse(Mat A, PetscReal *eigenvalue)
     PetscCall(EPSGetErrorEstimate(eps, 0, &error));
 
     // Print solver information
-    PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Solution method: %s\n", type));
-    PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Number of iterations: %d\n", (int)max_it));
-    PetscCall(PetscPrintf(PETSC_COMM_WORLD, "Error estimate: %g\n", (double)error));
+    PetscCall(PetscPrintf(comm, "Solution method: %s\n", type));
+    PetscCall(PetscPrintf(comm, "Number of iterations: %d\n", (int)max_it));
+    PetscCall(PetscPrintf(comm, "Error estimate: %g\n", (double)error));
 
     // Clean up
     PetscCall(EPSDestroy(&eps));
@@ -114,15 +121,20 @@ PetscErrorCode largest_eigenvalue_sparse(Mat A, PetscReal *eigenvalue)
 PetscErrorCode test_eigenvalues(const Simulation_context *context)
 {
     printf_master("Building dense Hamiltonian matrix\n");
+    double *h_dense = NULL;
     // allocate memory for dense Hamiltonian
-    size_t h_dimension = context->h_dimension;
-    double *h_dense = (double *)malloc(h_dimension * h_dimension * sizeof(double));
-    if (h_dense == NULL)
+    if (context->partition_id == 0)
     {
-        print_error_msg_mpi("Unable to allocate memory for dense Hamiltonian");
-        exit(1);
+        size_t h_dimension = context->h_dimension;
+        h_dense = (double *)malloc(h_dimension * h_dimension * sizeof(double));
+        if (h_dense == NULL)
+        {
+            print_error_msg_mpi("Unable to allocate memory for dense Hamiltonian");
+            exit(1);
+        }
+        build_hamiltonian_dense(context, h_dense);
     }
-    build_hamiltonian_dense(context, h_dense);
+
     printf_master("Computing dense eigenvalues\n");
     double largest_dense = eigen_values_dense(context, h_dense);
 
@@ -131,11 +143,12 @@ PetscErrorCode test_eigenvalues(const Simulation_context *context)
     PetscCall(largest_eigenvalue_sparse(context->hamiltonian, &largest_sparse));
 
     // Compare results
-    printf_master("\n=== Results Comparison ===\n");
-    printf_master("Largest eigenvalue (dense):  %lf\n", largest_dense);
-    printf_master("Largest eigenvalue (sparse): %lf\n", (double)largest_sparse);
-    printf_master("Relative difference: %e\n", fabs((largest_dense - largest_sparse) / largest_dense));
-
+    if (context->partition_id == 0) {
+        printf("\n=== Results Comparison ===\n");
+        printf("Largest eigenvalue (dense):  %lf\n", largest_dense);
+        printf("Largest eigenvalue (sparse): %lf\n", (double)largest_sparse);
+        printf("Relative difference: %e\n", fabs((largest_dense - largest_sparse) / largest_dense));
+    }
     free(h_dense);
     return PETSC_SUCCESS;
 }
@@ -152,13 +165,14 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    Simulation_context context = {0}; // Initialize all fields to 0
-    PetscCall(init_simulation_context(&context, argv[1]));
-    PetscCall(test_eigenvalues(&context));
+    Simulation_context *context = malloc(sizeof(Simulation_context));
+    PetscCall(init_simulation_context(context, argv[1]));
+    PetscCall(test_eigenvalues(context));
 
     // Clean up
     printf_master("\nCleaning up\n");
-    PetscCall(free_simulation_context(&context));
+    PetscCall(free_simulation_context(context));
+    free(context);
     PetscCall(SlepcFinalize());
     return 0;
 }

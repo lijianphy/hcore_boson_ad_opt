@@ -13,7 +13,8 @@ static int validate_json_schema(const cJSON *json)
 {
     // Check required fields exist
     const char *required_fields[] = {"cnt_site", "cnt_bond", "cnt_excitation", "bonds", "coupling_strength",
-                                     "total_time", "time_steps", "initial_state", "target_state"};
+                                     "total_time", "time_steps", "initial_state", "target_state",
+                                     "cnt_stream", "process_per_stream", "total_iteration", "rng_seed"};
     size_t num_required_fields = sizeof(required_fields) / sizeof(required_fields[0]);
     for (size_t i = 0; i < num_required_fields; i++)
     {
@@ -27,7 +28,8 @@ static int validate_json_schema(const cJSON *json)
 
     /// Check types and values
     // Check numbers
-    const char *number_fields[] = {"cnt_site", "cnt_bond", "cnt_excitation", "total_time", "time_steps"};
+    const char *number_fields[] = {"cnt_site", "cnt_bond", "cnt_excitation", "total_time", "time_steps",
+                                   "cnt_stream", "process_per_stream", "total_iteration", "rng_seed"};
     size_t num_number_fields = sizeof(number_fields) / sizeof(number_fields[0]);
     for (size_t i = 0; i < num_number_fields; i++)
     {
@@ -302,6 +304,12 @@ int read_config(const char *file_name, Simulation_context *context)
         context->target_state |= (State)1 << cJSON_GetArrayItem(target_state, i)->valueint;
     }
 
+    // Read total_iteration, cnt_stream, process_per_stream, rng_seed
+    context->total_iteration = cJSON_GetObjectItem(json, "total_iteration")->valueint;
+    context->n_streams = cJSON_GetObjectItem(json, "cnt_stream")->valueint;
+    context->n_partition = cJSON_GetObjectItem(json, "process_per_stream")->valueint;
+    context->rng_seed = cJSON_GetObjectItem(json, "rng_seed")->valueint;
+
     // Read fixed coupling configuration if it exists
     context->isfixed = (int *)calloc(context->cnt_bond, sizeof(int));
     cJSON *fixed_couplings = cJSON_GetObjectItem(json, "fixed_couplings");
@@ -345,18 +353,15 @@ int print_config(const Simulation_context *context)
     printf("cnt_site: %d\n", context->cnt_site);
     printf("cnt_bond: %d\n", context->cnt_bond);
     printf("cnt_excitation: %d\n", context->cnt_excitation);
-
-    for (int i = 0; i < context->cnt_bond; i++)
-    {
-        printf("bond[%d]: %d %d %lf\n", i, context->bonds[i].x, context->bonds[i].y, context->coupling_strength[i]);
-    }
-
     printf("total_time: %lf\n", context->total_time);
     printf("time_steps: %d\n", context->time_steps);
     printf("initial_state: ");
     print_state(context->initial_state, context->cnt_site);
     printf("target_state:  ");
     print_state(context->target_state, context->cnt_site);
+    printf("total_iteration: %d\n", context->total_iteration);
+    printf("n_streams: %d\n", context->n_streams);
+    printf("n_partition: %d\n", context->n_partition);
 
     return 0;
 }

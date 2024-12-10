@@ -44,8 +44,11 @@ static char *generate_output_file_name(const char *file_name)
     unsigned int random_val;
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
-        fread(&random_val, sizeof(random_val), 1, f);
+        size_t cnt_read = fread(&random_val, sizeof(random_val), 1, f);
         fclose(f);
+        if (cnt_read != 1) {
+            random_val = (unsigned int)time(NULL) ^ (unsigned int)clock();
+        }
     } else {
         random_val = (unsigned int)time(NULL) ^ (unsigned int)clock();
     }
@@ -83,28 +86,39 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     // clear the context
     memset(context, 0, sizeof(Simulation_context));
 
-    // get n_partition and partition_id
-    int n_partition = 0;
-    int partition_id = 0;
-    MPI_Comm_size(PETSC_COMM_WORLD, &n_partition);
-    MPI_Comm_rank(PETSC_COMM_WORLD, &partition_id);
-    context->n_partition = n_partition;
-    context->partition_id = partition_id;
-    printf_master("Number of partitions: %d\n", n_partition);
+    // get total_rank and rank_id
+    int total_rank = 0;
+    int rank_id = 0;
+    MPI_Comm_size(PETSC_COMM_WORLD, &total_rank);
+    MPI_Comm_rank(PETSC_COMM_WORLD, &rank_id);
+    printf_master("Number of process: %d\n", total_rank);
 
     printf_master("Reading configuration from %s\n", file_name);
     PetscCall(read_config(file_name, context));
 
     printf_master("Got configuration:\n");
-    if (partition_id == 0)
+    if (rank_id == 0)
     {
         print_config(context);
     }
 
+    // check if the number of processes is equal to n_streams * n_partition
+    if (total_rank != (context->n_streams * context->n_partition))
+    {
+        print_error_msg_mpi("Number of processes must be equal to n_streams * n_partition");
+        return PETSC_ERR_ARG_WRONG;
+    }
+
+    // split the communicator into streams
+    int color = rank_id / context->n_partition;
+    PetscCall(MPI_Comm_split(PETSC_COMM_WORLD, color, rank_id, &context->comm));
+    context->stream_id = color;
+    MPI_Comm_rank(context->comm, &context->partition_id);
+
     // open output file
     // the format of output is JSON lines (also called newline-delimited JSON), see: https://jsonlines.org/
     context->output_file = NULL;
-    if (partition_id == 0)
+    if (context->partition_id == 0)
     {
         char *output_file = generate_output_file_name(file_name);
         context->output_file = fopen(output_file, "w");
@@ -124,8 +138,8 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     printf_master("Hilbert space dimension: %zu\n", h_dimension);
 
     // calculate the local size and begin index
-    context->local_partition_size = local_partition_size(h_dimension, n_partition, partition_id);
-    context->local_partition_begin = local_partition_begin(h_dimension, n_partition, partition_id);
+    context->local_partition_size = local_partition_size(h_dimension, context->n_partition, context->partition_id);
+    context->local_partition_begin = local_partition_begin(h_dimension, context->n_partition, context->partition_id);
 
     printf_master("Building sparse Hamiltonian matrix\n");
     PetscCall(build_hamiltonian_sparse(context, 1));
@@ -134,7 +148,7 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     PetscCall(build_single_bond_ham_sparse(context));
 
     printf_master("Build initial and target vectors\n");
-    PetscCall(VecCreateMPI(PETSC_COMM_WORLD, context->local_partition_size, h_dimension, &context->init_vec));
+    PetscCall(VecCreateMPI(context->comm, context->local_partition_size, h_dimension, &context->init_vec));
     PetscCall(VecDuplicate(context->init_vec, &context->target_vec));
     PetscCall(generate_fock_state(context->init_vec, context->initial_state, context));
     PetscCall(generate_fock_state(context->target_vec, context->target_state, context));
@@ -147,8 +161,8 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
 
     // initalize random number generator
     context->rng = (rng_t *)malloc(sizeof(rng_t));
-    set_seed(context->rng, 3141592653);
-    for (int i = 0; i < partition_id; i++) // set different random stream for each partition
+    set_seed(context->rng, context->rng_seed);
+    for (int i = 0; i < context->stream_id; i++) // set different random stream for each stream
     {
         jump_forward(context->rng);
     }
@@ -176,7 +190,7 @@ PetscErrorCode set_coupling_strength(Simulation_context *context, double *coupli
         }
     }
     // broadcast the coupling strength to all processes
-    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, context->comm));
     PetscCall(build_hamiltonian_sparse(context, 0));
     return PETSC_SUCCESS;
 }
@@ -199,7 +213,7 @@ PetscErrorCode update_coupling_strength(Simulation_context *context, double *del
         }
     }
     // broadcast the coupling strength to all processes
-    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, PETSC_COMM_WORLD));
+    PetscCall(MPI_Bcast(context->coupling_strength, context->cnt_bond, MPI_DOUBLE, 0, context->comm));
     PetscCall(build_hamiltonian_sparse(context, 0));
     return PETSC_SUCCESS;
 }
@@ -244,6 +258,9 @@ PetscErrorCode free_simulation_context(Simulation_context *context)
 
     // free random number generator
     free(context->rng);
+
+    // free MPI communicator
+    PetscCall(MPI_Comm_free(&context->comm));
 
     return PETSC_SUCCESS;
 }
@@ -424,7 +441,7 @@ PetscErrorCode build_hamiltonian_sparse(Simulation_context *context, int create_
         PetscInt *d_nnz = (PetscInt *)malloc(mpi_local_size * sizeof(PetscInt));
         PetscInt *o_nnz = (PetscInt *)malloc(mpi_local_size * sizeof(PetscInt));
         init_dnnz_onnz(context, d_nnz, o_nnz);
-        PetscCall(MatCreateAIJ(PETSC_COMM_WORLD, mpi_local_size, mpi_local_size, h_dimension,
+        PetscCall(MatCreateAIJ(context->comm, mpi_local_size, mpi_local_size, h_dimension,
                                h_dimension, 0, d_nnz, 0, o_nnz, &context->hamiltonian));
 
         PetscCall(MatSetUp(context->hamiltonian));
@@ -468,7 +485,7 @@ PetscErrorCode build_hamiltonian_sparse(Simulation_context *context, int create_
     // check if the matrix is Hermitian
     PetscBool is_hermitian;
     PetscCall(check_Hermitian(context->hamiltonian, &is_hermitian));
-    PetscCheckAbort(is_hermitian == PETSC_TRUE, PETSC_COMM_WORLD, 1, "Hamiltonian matrix is not Hermitian");
+    PetscCheckAbort(is_hermitian == PETSC_TRUE, context->comm, 1, "Hamiltonian matrix is not Hermitian");
 #endif
 
     return PETSC_SUCCESS;
@@ -508,7 +525,7 @@ PetscErrorCode build_single_bond_ham_sparse(Simulation_context *context)
         Pair bond = bonds[j];
 
         // create the matrix
-        PetscCall(MatCreateAIJ(PETSC_COMM_WORLD, mpi_local_size, mpi_local_size, h_dimension,
+        PetscCall(MatCreateAIJ(context->comm, mpi_local_size, mpi_local_size, h_dimension,
                                h_dimension, 1, NULL, 1, NULL, &single_bond_hams[j]));
 
         PetscCall(MatSetUp(single_bond_hams[j]));

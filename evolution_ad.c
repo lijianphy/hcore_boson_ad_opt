@@ -538,10 +538,6 @@ PetscErrorCode optimize_coupling_strength_adam_changing_phase(Simulation_context
 // sort the index list based on fidelities in descending order
 void sort_index_by_fidelity(const double *fidelities, int *index_list, int cnt_stream)
 {
-    for (int i = 0; i < cnt_stream; i++)
-    {
-        index_list[i] = i;
-    }
     // do the sort using insertion sort
     for (int i = 1; i < cnt_stream; i++)
     {
@@ -580,6 +576,11 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
 
     free(grad);
     return PETSC_SUCCESS;
+}
+
+static inline int min_int(int a, int b)
+{
+    return a < b ? a : b;
 }
 
 // Full Adam optimization process with parallel instances
@@ -627,12 +628,17 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         fidelities = (double *)malloc(cnt_parallel * sizeof(double));
         index_list = (int *)malloc(cnt_parallel * sizeof(int));
         coupling_strength_list = (double *)malloc(cnt_parallel * cnt_bond * sizeof(double));
+        for (int i = 0; i < cnt_parallel; i++)
+        {
+            index_list[i] = i;
+        }
     }
 
     int is_coupling_reset = 0;
     int is_coupling_reset_any = 0;
 
     double *coupling_strength_reset = (double *)malloc(cnt_bond * sizeof(double));
+    memcpy(coupling_strength_reset, context->coupling_strength, cnt_bond * sizeof(double));
 
     for (int iter = 0; iter < max_iterations; iter++)
     {
@@ -663,7 +669,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
             break;
         }
 
-        // collect fidelities from all streams to master
+        // collect fidelities from all master process to root process
         if (context->is_master)
         {
             PetscCall(MPI_Gather(&fidelity, 1, MPI_DOUBLE, fidelities, 1, MPI_DOUBLE, 0, context->master_comm));
@@ -717,9 +723,9 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                 {
                     sort_index_by_fidelity(fidelities, index_list, cnt_parallel);
 
-                    // set the coupling strength to the average of the best 1/4 of the contexts
-                    int cnt_avg = cnt_parallel / 4 + 1;
-                    double scale = 1.0;
+                    // set the coupling strength to the average of the best cnt_avg of the contexts
+                    int cnt_avg = min_int(cnt_parallel / 4 + 1, 3);
+                    double scale = 2.0;
                     for (int i = 0; i < cnt_bond; i++)
                     {
                         if (context->isfixed[i])
@@ -733,7 +739,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                             {
                                 sum += coupling_strength_list[index_list[j] * cnt_bond + i];
                             }
-                            coupling_strength_reset[i] = sum / cnt_avg + randu2(context->rng, -scale, scale);
+                            coupling_strength_reset[i] = (sum / cnt_avg) + randu2(context->rng, -scale, scale);
                         }
                     }
                 }

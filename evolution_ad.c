@@ -262,6 +262,26 @@ static PetscErrorCode set_random_coupling_strength(Simulation_context *context, 
     return PETSC_SUCCESS;
 }
 
+// Set the coupling strength to random values with normal distribution
+static PetscErrorCode set_random_coupling_strength_normal(Simulation_context *context, double mu, double sigma)
+{
+    // Only master process generates random values
+    if (context->partition_id == 0)
+    {
+        for (int i = 0; i < context->cnt_bond; i++)
+        {
+            if (!context->isfixed[i])
+            {
+                context->coupling_strength[i] = randn2(context->rng, mu, sigma);
+            }
+        }
+    }
+
+    // Set Hamiltonian with the new coupling strengths
+    PetscCall(set_coupling_strength(context, context->coupling_strength));
+    return PETSC_SUCCESS;
+}
+
 // Write iteration data before the optimization functions (which will update the coupling strength)
 static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double *grad, double norm2_grad, double fidelity)
 {
@@ -589,10 +609,10 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     int cnt_parallel = context->n_streams;
     int max_iterations = context->total_iteration;
     printf_master("Start optimizing the coupling strength using parallel Adam optimizer with\n");
-    printf_master("parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
+    printf_master("    parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
                   cnt_parallel, max_iterations, learning_rate, beta1, beta2);
 
-    PetscCall(set_random_coupling_strength(context, 0.05, 5.0));
+    PetscCall(set_random_coupling_strength_normal(context, 5.0, 2.0));
 
     int total_rank_id;
     MPI_Comm_rank(PETSC_COMM_WORLD, &total_rank_id);
@@ -623,6 +643,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     double *fidelities = NULL;
     int *index_list = NULL;
     double *coupling_strength_list = NULL;
+    int *is_coupling_reset_list = NULL;
     if (context->root_id == total_rank_id)
     {
         fidelities = (double *)malloc(cnt_parallel * sizeof(double));
@@ -632,10 +653,13 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         {
             index_list[i] = i;
         }
+        is_coupling_reset_list = (int *)calloc(cnt_parallel, sizeof(int));
     }
 
     int is_coupling_reset = 0;
     int is_coupling_reset_any = 0;
+    int reset_stream_id = 0;
+    double avg_change_rate = 1e3;
 
     double *coupling_strength_reset = (double *)malloc(cnt_bond * sizeof(double));
     memcpy(coupling_strength_reset, context->coupling_strength, cnt_bond * sizeof(double));
@@ -658,7 +682,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
 
         if ((1.0 - fidelity) < 1e-5)
         {
-            PetscPrintf(context->comm, "Stream %d Converged\n", context->stream_id);
+            PetscPrintf(context->comm, "[%5d] Stream %d Converged\n", iter, context->stream_id);
             converged = 1;
         }
 
@@ -684,7 +708,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                         max_fidelity = fidelities[p];
                     }
                 }
-                printf("Iteration %5d, min infidelity: %.6e\n", iter, 1.0 - max_fidelity);
+                printf("[%5d] Min infidelity: %.6e\n", iter, 1.0 - max_fidelity);
             }
         }
 
@@ -692,14 +716,14 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         PetscCall(MPI_Bcast(&max_fidelity, 1, MPI_DOUBLE, context->root_id, PETSC_COMM_WORLD));
 
         infidelity = 1.0 - fidelity;
-        if (change_cooldown > 20)
+        if (change_cooldown > buffer_size)
         {
-            double avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
+            avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
             avg_change_rate /= infidelity;
             if (fabs(avg_change_rate) < 1e-4 && infidelity > 0.01 && fidelity < max_fidelity)
             {
+                PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e)\n", iter, context->stream_id, avg_change_rate);
                 is_coupling_reset = 1;
-                PetscPrintf(context->comm, "Stream %d: Average change rate too small (%.2e), generating new coupling strength\n", context->stream_id, avg_change_rate);
             }
             else
             {
@@ -719,6 +743,8 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
             {
                 // collect coupling strength from all streams to master
                 PetscCall(MPI_Gather(context->coupling_strength, cnt_bond, MPI_DOUBLE, coupling_strength_list, cnt_bond, MPI_DOUBLE, 0, context->master_comm));
+                // collect is_coupling_reset from all streams to master
+                PetscCall(MPI_Gather(&is_coupling_reset, 1, MPI_INT, is_coupling_reset_list, 1, MPI_INT, 0, context->master_comm));
                 if (total_rank_id == context->root_id)
                 {
                     sort_index_by_fidelity(fidelities, index_list, cnt_parallel);
@@ -742,15 +768,54 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                             coupling_strength_reset[i] = (sum / cnt_avg) + randu2(context->rng, -scale, scale);
                         }
                     }
+                    // select the stream id to reset the coupling strength
+                    for (int j = 0; j < cnt_parallel; j++)
+                    {
+                        if (is_coupling_reset_list[j])
+                        {
+                            reset_stream_id = j;
+                            break;
+                        }
+                    }
                 }
-                // broadcast the new coupling strength to all processes
-                PetscCall(MPI_Bcast(coupling_strength_reset, cnt_bond, MPI_DOUBLE, 0, context->master_comm));
+                // broadcast the reset_stream_id to all processes
+                PetscCall(MPI_Bcast(&reset_stream_id, 1, MPI_INT, 0, context->master_comm));
+
+                if (reset_stream_id != 0) {
+                    // send the coupling strength from root to the selected stream
+                    if (total_rank_id == context->root_id)
+                    {
+                        PetscCall(MPI_Send(coupling_strength_reset, cnt_bond, MPI_DOUBLE, reset_stream_id, 0, context->master_comm));
+                    }
+
+                    if (context->master_rank == reset_stream_id)
+                    {
+                        PetscCall(MPI_Recv(coupling_strength_reset, cnt_bond, MPI_DOUBLE, 0, 0, context->master_comm, MPI_STATUS_IGNORE));
+                        is_coupling_reset = 1;
+                    }
+                    else
+                    {
+                        is_coupling_reset = 0;
+                    }
+                } else {
+                    if (context->master_rank == reset_stream_id)
+                    {
+                        is_coupling_reset = 1;
+                    }
+                    else
+                    {
+                        is_coupling_reset = 0;
+                    }
+                }
             }
         }
+        // broadcast the is_coupling_reset to all processes
+        PetscCall(MPI_Bcast(&is_coupling_reset, 1, MPI_INT, 0, context->comm));
 
         // Apply optimizer updates
         if (is_coupling_reset)
         {
+            PetscPrintf(context->comm, "[%5d] Stream %d: Generating new coupling strength\n", iter, context->stream_id);
             change_cooldown = 0;
             buffer_idx = 0;
             memset(m, 0, cnt_bond * sizeof(double));
@@ -775,6 +840,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     free(index_list);
     free(coupling_strength_list);
     free(coupling_strength_reset);
+    free(is_coupling_reset_list);
 
     return PETSC_SUCCESS;
 }

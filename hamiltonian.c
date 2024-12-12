@@ -25,7 +25,7 @@
  * @param file_name Input file name
  * @return Output file name
  */
-static char *generate_output_file_name(const char *file_name)
+static char *generate_output_file_name(const char *file_name, int stream_id)
 {
     // Extract base name from path
     const char *base_name = strrchr(file_name, '/');
@@ -66,9 +66,9 @@ static char *generate_output_file_name(const char *file_name)
     output_file[base_len] = '\0';
 
     // output file name format: base_name_RANDOM_YYYYMMDD-HHMMSS.jsonl
-    sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d_%s.jsonl",
+    sprintf(output_file + base_len, "_%04d%02d%02d-%02d%02d%02d_%02d_%s.jsonl",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec, random_str);
+            tm.tm_hour, tm.tm_min, tm.tm_sec, stream_id, random_str);
 
     return output_file;
 }
@@ -136,7 +136,7 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
     context->output_file = NULL;
     if (context->partition_id == 0)
     {
-        char *output_file = generate_output_file_name(file_name);
+        char *output_file = generate_output_file_name(file_name, context->stream_id);
         context->output_file = fopen(output_file, "w");
         if (context->output_file == NULL)
         {
@@ -144,7 +144,7 @@ PetscErrorCode init_simulation_context(Simulation_context *context, const char *
             free(output_file);
             return PETSC_ERR_FILE_OPEN;
         }
-        printf_master("Output file: %s\n", output_file);
+        printf("Output file: %s\n", output_file);
         free(output_file);
     }
 

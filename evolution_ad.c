@@ -603,6 +603,16 @@ static inline int min_int(int a, int b)
     return a < b ? a : b;
 }
 
+static inline double max_double(double a, double b)
+{
+    return a > b ? a : b;
+}
+
+static inline double min_double(double a, double b)
+{
+    return a < b ? a : b;
+}
+
 // Full Adam optimization process with parallel instances
 PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context, double learning_rate, double beta1, double beta2)
 {
@@ -632,6 +642,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
 
     // Buffer to store the last 10 infidelities
     const int buffer_size = 10;
+    const int change_cooldown_threshold = 30;
     double *infidelity_buffer = (double *)malloc(buffer_size * sizeof(double));
     memset(infidelity_buffer, 0, buffer_size * sizeof(double));
     int buffer_idx = 0;
@@ -640,8 +651,10 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     int converged = 0;
     int converged_any = 0;
     double max_fidelity = 0.0;
+    double max_fidelity_change_rate = 1e3;
 
     double *fidelities = NULL;
+    double *change_rates = NULL;
     int *index_list = NULL;
     double *coupling_strength_list = NULL;
     int *is_coupling_reset_list = NULL;
@@ -655,6 +668,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
             index_list[i] = i;
         }
         is_coupling_reset_list = (int *)calloc(cnt_parallel, sizeof(int));
+        change_rates = (double *)malloc(cnt_parallel * sizeof(double));
     }
 
     int is_coupling_reset = 0;
@@ -693,43 +707,53 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
             break;
         }
 
-        // collect fidelities from all master process to root process
+        // caclulate change rate
+        if (change_cooldown > change_cooldown_threshold)
+        {
+            avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
+            avg_change_rate /= infidelity;
+        }
+        else
+        {
+            avg_change_rate = 1e3;
+        }
+
+        // collect fidelities and change rates from all master process to root process
         if (context->is_master)
         {
             PetscCall(MPI_Gather(&fidelity, 1, MPI_DOUBLE, fidelities, 1, MPI_DOUBLE, 0, context->master_comm));
+            PetscCall(MPI_Gather(&avg_change_rate, 1, MPI_DOUBLE, change_rates, 1, MPI_DOUBLE, 0, context->master_comm));
             if (total_rank_id == context->root_id)
             {
                 // get max fidelity
                 max_fidelity = 0.0;
+                max_fidelity_change_rate = 0.0;
                 for (int p = 0; p < cnt_parallel; p++)
                 {
                     if (fidelities[p] > max_fidelity)
                     {
                         max_fidelity = fidelities[p];
+                        max_fidelity_change_rate = change_rates[p];
                     }
                 }
-                printf("[%5d] Min infidelity: %.6e\n", iter, 1.0 - max_fidelity);
+                printf("[%5d] Min infidelity: %.6e, change rate: %.6e\n", iter, 1.0 - max_fidelity, max_fidelity_change_rate);
             }
         }
 
-        // broadcast the max fidelity to all processes
+        // broadcast the max fidelity and change rate to all processes
         PetscCall(MPI_Bcast(&max_fidelity, 1, MPI_DOUBLE, context->root_id, PETSC_COMM_WORLD));
+        PetscCall(MPI_Bcast(&max_fidelity_change_rate, 1, MPI_DOUBLE, context->root_id, PETSC_COMM_WORLD));
 
         infidelity = 1.0 - fidelity;
-        if (change_cooldown > buffer_size)
+
+        if ((change_cooldown > change_cooldown_threshold) &&
+            (avg_change_rate < min_double(max_double(2.0 * max_fidelity_change_rate, 1e-6), 2e-4)) &&
+            (infidelity > 1e-3) &&
+            (fidelity < max_fidelity))
         {
-            avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
-            avg_change_rate /= infidelity;
-            if (fabs(avg_change_rate) < 1e-4 && infidelity > 0.01 && fidelity < max_fidelity)
-            {
-                PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",
-                            iter, context->stream_id, avg_change_rate);
-                is_coupling_reset = 1;
-            }
-            else
-            {
-                is_coupling_reset = 0;
-            }
+            PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",
+                        iter, context->stream_id, avg_change_rate);
+            is_coupling_reset = 1;
         }
         else
         {
@@ -750,7 +774,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                 {
                     sort_index_by_fidelity(fidelities, index_list, cnt_parallel);
                     // set the coupling strength to the average of the best cnt_avg of the contexts
-                    int cnt_avg = min_int(cnt_parallel / 4 + 1, 3);
+                    int cnt_avg = min_int(cnt_parallel / 4 + 1, 1);
                     for (int i = 0; i < cnt_bond; i++)
                     {
                         double sum = 0.0;
@@ -770,17 +794,17 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
                     }
                 }
 
-                if (is_coupling_reset) {
+                if (is_coupling_reset)
+                {
                     if (context->master_rank != 0)
                     {
                         PetscCall(MPI_Recv(coupling_strength_reset, cnt_bond, MPI_DOUBLE, 0, 0, context->master_comm, MPI_STATUS_IGNORE));
                     }
-                    for(int i = 0; i < cnt_bond; i++)
+                    for (int i = 0; i < cnt_bond; i++)
                     {
-                        double scale = 2.0;
                         if (!context->isfixed[i])
                         {
-                            coupling_strength_reset[i] += randu2(context->rng, -scale, scale);
+                            coupling_strength_reset[i] = coupling_strength_reset[i] * randn2(context->rng, 1.0, 0.5) + randu2(context->rng, -1.0, 1.0);
                         }
                         else
                         {
@@ -819,6 +843,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     free(coupling_strength_list);
     free(coupling_strength_reset);
     free(is_coupling_reset_list);
+    free(change_rates);
 
     return PETSC_SUCCESS;
 }

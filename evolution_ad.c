@@ -636,7 +636,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
 
     // Buffer to store the last 10 infidelities
     const int buffer_size = 10;
-    const int change_cooldown_threshold = 30;
+    const int change_cooldown_threshold = 50;
     double *infidelity_buffer = (double *)malloc(buffer_size * sizeof(double));
     memset(infidelity_buffer, 0, buffer_size * sizeof(double));
     int buffer_idx = 0;

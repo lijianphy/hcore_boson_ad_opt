@@ -9,5 +9,9 @@
     "initial_state": [0, 1],
     "target_state": [98, 99],
     "fixed_couplings": [[0, 1], [98, 99]],
-    "fixed_coupling_strength": [1.0, 1.0]
+    "fixed_coupling_strength": [1.0, 1.0],
+    "cnt_stream": 8,
+    "process_per_stream": 1,
+    "total_iteration": 10000,
+    "rng_seed": 3141592653
 }

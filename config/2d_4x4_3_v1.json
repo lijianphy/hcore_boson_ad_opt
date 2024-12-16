@@ -16,5 +16,9 @@
     "total_time": 3.14159,
     "time_steps": 20,
     "initial_state": [0, 1, 4],
-    "target_state": [11, 14, 15]
+    "target_state": [11, 14, 15],
+    "cnt_stream": 8,
+    "process_per_stream": 1,
+    "total_iteration": 10000,
+    "rng_seed": 3141592653
 }

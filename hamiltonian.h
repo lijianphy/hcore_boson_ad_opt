@@ -23,6 +23,7 @@ typedef uint64_t State;
 #define state2index(k, state) permutation2index(k, state)
 #define next_state(state) next_bit_permutation(state)
 #define swap_sites(state, i, j) swap_bits(state, i, j)
+#define is_bit_set(v, n) is_bit_set(v, n)
 #elif MAX_SITE == 128
 typedef __uint128_t State;
 #define print_state(state, n) print_bits128(state, n)
@@ -30,6 +31,7 @@ typedef __uint128_t State;
 #define state2index(k, state) permutation2index128(k, state)
 #define next_state(state) next_bit_permutation128(state)
 #define swap_sites(state, i, j) swap_bits128(state, i, j)
+#define is_bit_set(v, n) is_bit_set128(v, n)
 #else
 #error "MAX_SITE must be 64 or 128"
 #endif

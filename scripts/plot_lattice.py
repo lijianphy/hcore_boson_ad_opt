@@ -78,6 +78,11 @@ def main():
                                  edge_vmin=vmin, edge_vmax=vmax,
                                  width=3, ax=ax)
 
+    # Add edge labels with coupling strengths
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    edge_labels = {k: f'{v:.2f}' for k, v in edge_labels.items()}  # Format to 2 decimal places
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+
     # Add node labels
     nx.draw_networkx_labels(G, pos, ax=ax)
 

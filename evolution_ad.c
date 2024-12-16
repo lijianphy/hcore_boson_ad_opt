@@ -283,7 +283,7 @@ static PetscErrorCode set_random_coupling_strength_normal(Simulation_context *co
 }
 
 // Write iteration data before the optimization functions (which will update the coupling strength)
-static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double *grad, double norm2_grad, double fidelity)
+static PetscErrorCode write_iteration_data(Simulation_context *context, int iter, double norm2_grad, double fidelity)
 {
     FILE *fp = context->output_file;
     if (fp && context->partition_id == 0)
@@ -292,12 +292,6 @@ static PetscErrorCode write_iteration_data(Simulation_context *context, int iter
         for (int i = 0; i < context->cnt_bond; i++)
         {
             fprintf(fp, "%.10e%s", context->coupling_strength[i],
-                    i < context->cnt_bond - 1 ? ", " : "");
-        }
-        fprintf(fp, "], \"gradient\": [");
-        for (int i = 0; i < context->cnt_bond; i++)
-        {
-            fprintf(fp, "%.10e%s", grad[i],
                     i < context->cnt_bond - 1 ? ", " : "");
         }
         fprintf(fp, "], \"norm2_grad\": %.10e, \"infidelity\": %.10e}\n",
@@ -336,7 +330,7 @@ PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int ma
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
         if ((1.0 - fidelity) < 1e-5)
         {
@@ -373,7 +367,7 @@ PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int 
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if ((1.0 - fidelity) < 1e-5)
@@ -449,7 +443,7 @@ PetscErrorCode optimize_coupling_strength_adam_fixed_phase(Simulation_context *c
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if ((1.0 - fidelity) < 1e-5)
@@ -502,7 +496,7 @@ PetscErrorCode optimize_coupling_strength_adam_changing_phase(Simulation_context
         infidelity_buffer[buffer_idx] = infidelity;
         buffer_idx = (buffer_idx + 1) % buffer_size;
 
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if (infidelity < 1e-5)
@@ -590,7 +584,7 @@ PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, in
         // calculate the norm of gradient
         norm2_grad = cblas_dnrm2(context->cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
-        PetscCall(write_iteration_data(context, i, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, i, norm2_grad, fidelity));
         print_iteration_data(i, norm2_grad, fidelity, context->stream_id, context->partition_id);
     }
 
@@ -691,7 +685,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity_buffer[buffer_idx] = infidelity;
         buffer_idx = (buffer_idx + 1) % buffer_size;
 
-        PetscCall(write_iteration_data(context, iter, grad, norm2_grad, fidelity));
+        PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         // print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
         if ((1.0 - fidelity) < 1e-5)

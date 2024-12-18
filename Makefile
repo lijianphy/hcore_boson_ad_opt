@@ -49,7 +49,7 @@ OBJS := $(SRCS:.c=.o)
 # List of test executables
 TEST_TARGETS := test_ad test_bits test_bits128 test_cblas test_combination test_hamiltonian test_vec_math test_optimize random_sampling
 # All final executables
-TARGETS := $(TEST_TARGETS) optimize_parallel measure_density
+TARGETS := $(TEST_TARGETS) optimize_parallel measure_density eigenvalues_dense
 RANDOM_OBJS := random.o xoshiro256starstar.o xoshiro256plusplus.o
 
 # =============================================================================
@@ -120,6 +120,9 @@ optimize_parallel: optimize_parallel.o evolution_ad.o hamiltonian.o combination.
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 measure_density: measure_density.o evolution_ad.o hamiltonian.o combination.o vec_math.o simu_config.o $(RANDOM_OBJS)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+eigenvalues_dense: eigenvalues_dense.o hamiltonian.o combination.o simu_config.o $(RANDOM_OBJS)
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 # Clean all generated files

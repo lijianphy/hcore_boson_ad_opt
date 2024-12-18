@@ -24,3 +24,4 @@ Thumbs.db
 random_sampling
 optimize_parallel
 measure_density
+eigenvalues_dense

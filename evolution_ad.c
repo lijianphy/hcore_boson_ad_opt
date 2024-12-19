@@ -616,8 +616,11 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     printf_master("    parallel size: %d, max_iterations: %d, learning_rate: %.6e, beta1: %.6e, beta2: %.6e\n",
                   cnt_parallel, max_iterations, learning_rate, beta1, beta2);
 
-    // PetscCall(set_random_coupling_strength_normal(context, 5.0, 2.0));
-    PetscCall(set_random_coupling_strength(context, 0.5, 10.0));
+    if (context->stream_id != 0)
+    {
+        // PetscCall(set_random_coupling_strength_normal(context, 5.0, 2.0));
+        PetscCall(set_random_coupling_strength(context, 0.5, 10.0));
+    }
 
     int total_rank_id;
     MPI_Comm_rank(PETSC_COMM_WORLD, &total_rank_id);

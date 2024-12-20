@@ -744,7 +744,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < min_double(max_double(2.0 * max_fidelity_change_rate, 1e-6), 2e-4)) &&
+            (avg_change_rate < min_double(max_double(1.1 * max_fidelity_change_rate, 1e-6), 1e-4)) &&
             (infidelity > 1e-3) &&
             (fidelity < max_fidelity))
         {
@@ -824,6 +824,11 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
+            if (adam_iter % 100 == 0)
+            {
+                memset(m, 0, cnt_bond * sizeof(double));
+                memset(v, 0, cnt_bond * sizeof(double));
+            }
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iter % 100 + 1));
             adam_iter++;
             change_cooldown++;

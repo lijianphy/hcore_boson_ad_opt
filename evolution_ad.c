@@ -138,6 +138,20 @@ PetscErrorCode run_evolution_v3(Simulation_context *context)
     return PETSC_SUCCESS;
 }
 
+// Run forward and backward evolution, version 4
+// loss = log(1.0 - |<forward_path[time_steps] | target_vec>|^2)
+PetscErrorCode run_evolution_v4(Simulation_context *context)
+{
+    PetscCall(forward_evolution(context));
+    PetscScalar dot_product;
+    PetscCall(VecDot(context->forward_path[context->time_steps], context->target_vec, &dot_product));
+    double loss_inv = 1.0 / (1.0 - cabs(dot_product) * cabs(dot_product));
+    PetscCall(VecCopy(context->target_vec, context->backward_path[context->time_steps]));
+    PetscCall(VecScale(context->backward_path[context->time_steps], -loss_inv * dot_product));
+    PetscCall(backward_evolution(context));
+    return PETSC_SUCCESS;
+}
+
 // Run forward and backward evolution with a phase factor
 // loss = |forward_path[time_steps] - phase_factor * target_vec|^2
 PetscErrorCode run_evolution_with_phase(Simulation_context *context, double phi)
@@ -678,7 +692,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     for (int iter = 0; iter < max_iterations; iter++)
     {
         // Run one iteration for each parallel stream
-        PetscCall(run_evolution_v2(context));
+        PetscCall(run_evolution_v4(context));
         PetscCall(calculate_gradient(context, grad));
         norm2_grad = cblas_dnrm2(cnt_bond, grad, 1);
         PetscCall(calc_fidelity(context->forward_path[context->time_steps], context->target_vec, &fidelity));
@@ -744,7 +758,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < min_double(max_double(1.1 * max_fidelity_change_rate, 1e-6), 1e-4)) &&
+            (avg_change_rate < min_double(max_double(1.1 * max_fidelity_change_rate, 1e-6), 2e-4)) &&
             (infidelity > 1e-3) &&
             (fidelity < max_fidelity))
         {
@@ -824,12 +838,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            if (adam_iter % 100 == 0)
-            {
-                memset(m, 0, cnt_bond * sizeof(double));
-                memset(v, 0, cnt_bond * sizeof(double));
-            }
-            PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iter % 100 + 1));
+            PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, learning_rate, adam_iter + 1));
             adam_iter++;
             change_cooldown++;
         }

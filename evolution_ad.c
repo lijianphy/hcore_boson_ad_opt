@@ -626,7 +626,7 @@ static double learning_rate_schedule(int iter, int max_iterations, double learni
     double t = (double)iter / max_iterations;
     t = min_double(1.0, t);
     double lr = learning_rate * sqrt(1.0 - pow(t, 2));
-    return max_double(1e-6, lr);
+    return max_double(1e-4, lr);
 }
 
 // Full Adam optimization process with parallel instances
@@ -713,7 +713,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         PetscCall(write_iteration_data(context, iter, norm2_grad, fidelity));
         // print_iteration_data(iter, norm2_grad, fidelity, context->stream_id, context->partition_id);
 
-        if ((1.0 - fidelity) < 1e-5)
+        if ((1.0 - fidelity) < 1e-3)
         {
             PetscPrintf(context->comm, "[%5d] Stream %d Converged\n", iter, context->stream_id);
             converged = 1;
@@ -766,8 +766,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < min_double(max_double(1.1 * max_fidelity_change_rate, 1e-6), 2e-4)) &&
-            (infidelity > 1e-3) &&
+            (avg_change_rate < 1e-4) &&
             (fidelity < max_fidelity))
         {
             PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",

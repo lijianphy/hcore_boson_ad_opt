@@ -845,7 +845,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule(adam_iter + 1, 20000, learning_rate, 1e-6);
+            double lr = learning_rate_schedule(adam_iter + 1, 20000, 1e-6, learning_rate);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

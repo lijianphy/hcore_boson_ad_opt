@@ -621,10 +621,11 @@ static inline double min_double(double a, double b)
     return a < b ? a : b;
 }
 
-// Learning rate schedule using CosineAnnealing
+// Learning rate schedule using Exponential decay
 static double learning_rate_schedule(int iter, int max_iterations, double lr_min, double lr_max)
 {
-    double lr = lr_min + 0.5 * (lr_max - lr_min) * (1 + cos(M_PI * iter / max_iterations));
+    double decay_rate = log(lr_max / lr_min);
+    double lr = lr_max * exp(-decay_rate * iter / max_iterations);
     return lr;
 }
 
@@ -784,7 +785,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < 1e-4) &&
+            (avg_change_rate < 2e-4) &&
             (fidelity < max_fidelity))
         {
             PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",
@@ -863,7 +864,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule(min_int(adam_iter, 1000), 1000, 1e-3, learning_rate);
+            double lr = learning_rate_schedule(min_int(adam_iter, 2000), 2000, 1e-2, learning_rate);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

@@ -23,7 +23,6 @@ PetscErrorCode backward_evolution(Simulation_context* context);
 PetscErrorCode run_evolution_v1(Simulation_context* context);
 PetscErrorCode run_evolution_v2(Simulation_context* context);
 PetscErrorCode run_evolution_v3(Simulation_context* context);
-PetscErrorCode run_evolution_with_phase(Simulation_context *context, double phi);
 PetscErrorCode calculate_gradient(Simulation_context* context, double* grad);
 PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate, AD_TYPE ad_type);
 PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, AD_TYPE ad_type);

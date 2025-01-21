@@ -747,7 +747,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         // caclulate change rate
         if (change_cooldown > change_cooldown_threshold)
         {
-            avg_change_rate = linear_slope(infidelity_buffer, buffer_size, buffer_idx);
+            avg_change_rate = -linear_slope(infidelity_buffer, buffer_size, buffer_idx);
             avg_change_rate /= infidelity;
         }
         else
@@ -863,7 +863,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule(min_int(adam_iter, 2000), 2000, 1e-3, learning_rate);
+            double lr = learning_rate_schedule(adam_iter, 1000, 1e-3, learning_rate);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

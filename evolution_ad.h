@@ -28,7 +28,5 @@ PetscErrorCode calculate_gradient(Simulation_context* context, double* grad);
 PetscErrorCode optimize_coupling_strength_gd(Simulation_context *context, int max_iterations, double learning_rate, AD_TYPE ad_type);
 PetscErrorCode optimize_coupling_strength_adam(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, AD_TYPE ad_type);
 PetscErrorCode random_sampling_coupling_strength(Simulation_context *context, int cnt_samples, double a, double b, AD_TYPE ad_type);
-PetscErrorCode optimize_coupling_strength_adam_fixed_phase(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, double phase);
-PetscErrorCode optimize_coupling_strength_adam_changing_phase(Simulation_context *context, int max_iterations, double learning_rate, double beta1, double beta2, int type);
 PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context, double learning_rate, double beta1, double beta2);
 #endif // EVOLUTION_AD_H

@@ -31,8 +31,7 @@ int main(int argc, char *argv[])
 
     // run the optimization using Adam optimizer
     // Generally, Adam optimizer converges faster than gradient descent
-    // PetscCall(optimize_coupling_strength_adam(context, context->total_iteration, 0.01, 0.9, 0.999, AD_V2));
-    PetscCall(optimize_coupling_strength_adam_changing_phase(context, context->total_iteration, 0.01, 0.9, 0.999, 1));
+    PetscCall(optimize_coupling_strength_adam(context, context->total_iteration, 0.01, 0.9, 0.999, AD_V2));
 
     // print the optimized coupling strength
     if (context->partition_id == 0)

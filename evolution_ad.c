@@ -443,8 +443,9 @@ static double learning_rate_schedule_pow(int iter, int max_iterations, double lr
 // Learning rate schedule using exponential decay
 static double learning_rate_schedule_exp(int iter, int max_iterations, double lr_min, double lr_max)
 {
+    double ratio = log(lr_max / lr_min);
     double x = (double)iter / max_iterations;
-    double lr = lr_min + (lr_max - lr_min) * exp(-5.0 * x);
+    double lr = lr_max * exp(-ratio * x);
     return lr;
 }
 
@@ -604,7 +605,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < 1e-3) &&
+            (avg_change_rate < 2e-4) &&
             (fidelity < max_fidelity))
         {
             PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",
@@ -683,8 +684,8 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule_pow(min_int(iter, 500), 500, 0.0, 0.2) +
-                        learning_rate_schedule_pow(min_int(adam_iter, 1000), 1000, 1e-2, 0.1);
+            double lr = learning_rate_schedule_exp(min_int(iter, 1000), 1000, 1e-3, 0.5) +
+                        learning_rate_schedule_exp(min_int(adam_iter, 1000), 1000, 1e-2, 0.1);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     PetscCall(init_simulation_context(context, argv[1]));
     printf_master("Start optimizing the coupling strength in parallel\n");
 
-    PetscCall(optimize_coupling_strength_adam_parallel(context, 0.01, 0.9, 0.999));
+    PetscCall(optimize_coupling_strength_adam_parallel(context, 0.1, 0.9, 0.999));
 
     // Clean up
     printf_master("\nCleaning up\n");

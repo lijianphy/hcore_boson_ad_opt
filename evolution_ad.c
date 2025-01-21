@@ -621,12 +621,11 @@ static inline double min_double(double a, double b)
     return a < b ? a : b;
 }
 
-static double learning_rate_schedule(int iter, int max_iterations, double learning_rate)
+// Learning rate schedule using CosineAnnealing
+static double learning_rate_schedule(int iter, int max_iterations, double lr_min, double lr_max)
 {
-    double t = (double)iter / max_iterations;
-    t = min_double(1.0, t);
-    double lr = learning_rate * sqrt(1.0 - pow(t, 2));
-    return max_double(1e-4, lr);
+    double lr = lr_min + 0.5 * (lr_max - lr_min) * (1 + cos(M_PI * iter / max_iterations));
+    return lr;
 }
 
 // Full Adam optimization process with parallel instances
@@ -845,7 +844,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule(adam_iter + 1, 5000, learning_rate);
+            double lr = learning_rate_schedule(min_int(adam_iter, 2000), 2000, 1e-4, learning_rate);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

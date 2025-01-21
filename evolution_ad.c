@@ -436,7 +436,7 @@ static double learning_rate_schedule_cos(int iter, int max_iterations, double lr
 static double learning_rate_schedule_pow(int iter, int max_iterations, double lr_min, double lr_max)
 {
     double x = (double)iter / max_iterations;
-    double lr = lr_min + (lr_max - lr_min) * (1.0 - pow(x, 4.0));
+    double lr = lr_min + (lr_max - lr_min) * (1.0 - pow(x, 2.0));
     return lr;
 }
 
@@ -684,8 +684,8 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule_exp(min_int(iter, 1000), 1000, 1e-3, 0.5) +
-                        learning_rate_schedule_exp(min_int(adam_iter, 1000), 1000, 1e-2, 0.1);
+            double lr = learning_rate_schedule_pow(min_int(iter, 1000), 1000, 0.0, 0.1) +
+                        learning_rate_schedule_pow(min_int(adam_iter, 1000), 1000, 1e-2, 0.1);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

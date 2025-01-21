@@ -628,6 +628,25 @@ static double learning_rate_schedule(int iter, int max_iterations, double lr_min
     return lr;
 }
 
+// slope of linear regression
+static double linear_slope(const double *y, int n, int p)
+{
+    double sum_x = 0.0;
+    double sum_y = 0.0;
+    double sum_xy = 0.0;
+    double sum_x2 = 0.0;
+    for (int i = 0; i < n; i++)
+    {
+        int j = (p + i) % n;
+        sum_x += i;
+        sum_y += y[j];
+        sum_xy += i * y[j];
+        sum_x2 += i * i;
+    }
+    double slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
+    return slope;
+}
+
 // Full Adam optimization process with parallel instances
 PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *context, double learning_rate, double beta1, double beta2)
 {
@@ -728,7 +747,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         // caclulate change rate
         if (change_cooldown > change_cooldown_threshold)
         {
-            avg_change_rate = (infidelity_buffer[buffer_idx] - infidelity_buffer[(buffer_idx + buffer_size - 1) % buffer_size]) / buffer_size;
+            avg_change_rate = linear_slope(infidelity_buffer, buffer_size, buffer_idx);
             avg_change_rate /= infidelity;
         }
         else
@@ -844,7 +863,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         }
         else
         {
-            double lr = learning_rate_schedule(min_int(adam_iter, 2000), 2000, 1e-4, learning_rate);
+            double lr = learning_rate_schedule(min_int(adam_iter, 2000), 2000, 1e-3, learning_rate);
             PetscCall(adam_optimizer(context, grad, m, v, beta1, beta2, lr, adam_iter + 1));
             adam_iter++;
             change_cooldown++;

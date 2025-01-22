@@ -503,7 +503,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
     memset(v, 0, cnt_bond * sizeof(double));
 
     // Buffer to store the last buffer_size infidelities
-    const int buffer_size = 50;
+    const int buffer_size = 20;
     const int change_cooldown_threshold = 50;
     double *infidelity_buffer = (double *)malloc(buffer_size * sizeof(double));
     memset(infidelity_buffer, 0, buffer_size * sizeof(double));
@@ -609,7 +609,7 @@ PetscErrorCode optimize_coupling_strength_adam_parallel(Simulation_context *cont
         infidelity = 1.0 - fidelity;
 
         if ((change_cooldown > change_cooldown_threshold) &&
-            (avg_change_rate < 0.5 * infidelity) &&
+            (avg_change_rate < 2e-4) &&
             (fidelity < max_fidelity))
         {
             PetscPrintf(context->comm, "[%5d] Stream %d: Average change rate too small (%.2e), generating new coupling strength\n",
